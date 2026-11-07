@@ -1,0 +1,9 @@
+# Ateliê PWA — .gitignore
+node_modules/
+dist/
+.DS_Store
+Thumbs.db
+*.log
+.env
+.vscode/
+icons/*.svg

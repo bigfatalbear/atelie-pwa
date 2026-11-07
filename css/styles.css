@@ -1,0 +1,32 @@
+/* styles.css — pequenas extensões sobre o Tailwind */
+.input {
+  width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid #cbd5e1;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  background: #fff;
+}
+.dark .input {
+  background: #1e293b;
+  border-color: #475569;
+  color: #f1f5f9;
+}
+.input:focus {
+  outline: 2px solid #0ea5e9;
+  outline-offset: 1px;
+}
+
+.btn-primario {
+  background: #059669;
+  color: #fff;
+  font-weight: 600;
+  border-radius: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  transition: background 0.15s;
+}
+.btn-primario:hover { background: #10b981; }
+
+/* Card do Kanban enquanto arrastado */
+[draggable="true"]:active { cursor: grabbing; }
