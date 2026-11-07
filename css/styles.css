@@ -231,6 +231,49 @@ legend { color: #94a3b8; }
 
 footer { color: #64748b; }
 
+.auth-toast {
+  position: fixed;
+  z-index: 100;
+  right: max(1rem, env(safe-area-inset-right));
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  left: max(1rem, env(safe-area-inset-left));
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  max-width: 34rem;
+  margin-inline: auto;
+  padding: 1rem;
+  border: 1px solid rgba(6, 182, 212, 0.4);
+  border-radius: 0.875rem;
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: 0 16px 40px rgba(2, 8, 23, 0.5);
+}
+
+.auth-toast.hidden { display: none; }
+.auth-toast:not(.hidden) { display: flex; }
+
+.auth-toast--error {
+  border-color: rgba(248, 113, 113, 0.55);
+  background: #351c2b;
+}
+
+.auth-toast-dismiss {
+  flex: 0 0 auto;
+  width: 1.75rem;
+  height: 1.75rem;
+  margin-top: -0.25rem;
+  border-radius: 9999px;
+  color: var(--muted);
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.auth-toast-dismiss:hover {
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--text);
+}
+
 @media (max-width: 640px) {
   main { padding-inline: 1rem; }
   nav[role="tablist"] [data-tab] { padding-inline: 0.75rem; }

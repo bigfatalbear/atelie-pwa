@@ -5,6 +5,7 @@ import { db, salvar } from './db.js';
 import {
   cadastrarConta,
   entrarConta,
+  reenviarConfirmacaoConta,
   restaurarConfiguracaoSupabase,
   sairConta,
   sincronizarSupabase,
@@ -14,6 +15,9 @@ import { renderKanban, novaOS, COLUNAS } from './kanban.js';
 
 const $ = (sel) => document.querySelector(sel);
 let supabaseAcaoEmAndamento = false;
+let emailConfirmacaoPendente = null;
+let cooldownReenvioAte = 0;
+let timerCooldownReenvio = null;
 
 // ============================================================
 // INICIALIZAÇÃO
@@ -65,6 +69,8 @@ async function configurarSupabaseUI() {
 
   $('#btn-supabase-entrar')?.addEventListener('click', () => autenticarSupabase('login'));
   $('#btn-supabase-criar-conta')?.addEventListener('click', () => autenticarSupabase('signup'));
+  $('#btn-supabase-resend-confirmation')?.addEventListener('click', reenviarEmailConfirmacao);
+  $('#auth-toast-dismiss')?.addEventListener('click', () => $('#auth-toast')?.classList.add('hidden'));
   $('#btn-supabase-sair')?.addEventListener('click', desconectarSupabase);
   $('#btn-sync')?.addEventListener('click', () => sincronizarEAtualizar());
   document.querySelectorAll('[data-supabase-resolution]').forEach((button) => {
@@ -99,7 +105,10 @@ async function autenticarSupabase(mode) {
       const result = await cadastrarConta(email, password);
       if (result.confirmationRequired) {
         $('#supabase-password').value = '';
-        definirStatusSupabase(`Conta criada. Enviamos um e-mail de confirmação para ${email}. Verifique sua caixa de entrada e a pasta de spam e confirme o cadastro antes de entrar.`);
+        emailConfirmacaoPendente = email;
+        $('#supabase-resend-confirmation')?.classList.remove('hidden');
+        $('#supabase-resend-confirmation')?.classList.add('flex');
+        mostrarToastAuth(`Cadastro criado. O Supabase informou que é necessária a confirmação por e-mail para ${email}. Verifique sua caixa de entrada e a pasta de spam.`);
         return;
       }
     } else {
@@ -110,11 +119,69 @@ async function autenticarSupabase(mode) {
     definirStatusSupabase(`Conectado como ${email}. Verificando a sincronização…`);
     await sincronizarEAtualizar();
   } catch (error) {
-    definirStatusSupabase(`Não foi possível autenticar: ${error.message}`, true);
+    const message = `Não foi possível autenticar: ${error.message}`;
+    if (mode === 'signup') mostrarToastAuth(message, true);
+    else definirStatusSupabase(message, true);
   } finally {
     buttons.forEach((button) => { button.disabled = false; });
     supabaseAcaoEmAndamento = false;
   }
+}
+
+async function reenviarEmailConfirmacao() {
+  const button = $('#btn-supabase-resend-confirmation');
+  const status = $('#supabase-resend-status');
+  if (!emailConfirmacaoPendente || supabaseAcaoEmAndamento || Date.now() < cooldownReenvioAte) return;
+
+  supabaseAcaoEmAndamento = true;
+  button.disabled = true;
+  const authButtons = [...document.querySelectorAll('#btn-supabase-entrar, #btn-supabase-criar-conta')];
+  authButtons.forEach((authButton) => { authButton.disabled = true; });
+  status.textContent = 'Solicitando reenvio…';
+  try {
+    await reenviarConfirmacaoConta(emailConfirmacaoPendente);
+    mostrarToastAuth(`Solicitação de reenvio aceita pelo Supabase para ${emailConfirmacaoPendente}. Verifique sua caixa de entrada e a pasta de spam.`);
+    iniciarCooldownReenvio();
+  } catch (error) {
+    mostrarToastAuth(`Não foi possível solicitar o reenvio do e-mail de confirmação: ${error.message}`, true);
+    status.textContent = 'O reenvio não foi confirmado. Você pode tentar novamente.';
+  } finally {
+    supabaseAcaoEmAndamento = false;
+    authButtons.forEach((authButton) => { authButton.disabled = false; });
+    if (Date.now() >= cooldownReenvioAte) button.disabled = false;
+  }
+}
+
+function iniciarCooldownReenvio() {
+  clearTimeout(timerCooldownReenvio);
+  cooldownReenvioAte = Date.now() + 60_000;
+  $('#btn-supabase-resend-confirmation').disabled = true;
+  $('#supabase-resend-status').textContent = 'Aguarde 60 segundos antes de solicitar novamente.';
+  timerCooldownReenvio = setTimeout(atualizarStatusCooldownReenvio, 60_000);
+}
+
+function atualizarStatusCooldownReenvio() {
+  const restante = cooldownReenvioAte - Date.now();
+  if (restante > 0) {
+    timerCooldownReenvio = setTimeout(atualizarStatusCooldownReenvio, restante);
+    return;
+  }
+
+  clearTimeout(timerCooldownReenvio);
+  timerCooldownReenvio = null;
+  cooldownReenvioAte = 0;
+  $('#btn-supabase-resend-confirmation').disabled = false;
+  $('#supabase-resend-status').textContent = 'Você pode solicitar outro e-mail de confirmação.';
+}
+
+function mostrarToastAuth(message, error = false) {
+  const toast = $('#auth-toast');
+  if (!toast) return;
+  toast.classList.toggle('auth-toast--error', error);
+  toast.setAttribute('role', error ? 'alert' : 'status');
+  toast.setAttribute('aria-live', error ? 'assertive' : 'polite');
+  $('#auth-toast-message').textContent = message;
+  toast.classList.remove('hidden');
 }
 
 async function desconectarSupabase() {

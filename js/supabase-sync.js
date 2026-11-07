@@ -84,6 +84,12 @@ export async function cadastrarConta(email, password) {
   return { user: currentUser, confirmationRequired: !data.session };
 }
 
+export async function reenviarConfirmacaoConta(email) {
+  const supabase = exigirCliente();
+  const { error } = await supabase.auth.resend({ type: 'signup', email: email.trim() });
+  if (error) throw error;
+}
+
 export async function entrarConta(email, password) {
   const supabase = exigirCliente();
   const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
