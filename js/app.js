@@ -2,12 +2,18 @@
  * app.js — Inicialização, navegação e interfaces (Insumos, Precificação, Nova OS)
  */
 import { db, salvar } from './db.js';
-import { conectarDrive, lerConfiguracaoDrive, sincronizarDrive } from './google-drive.js';
+import {
+  cadastrarConta,
+  entrarConta,
+  restaurarConfiguracaoSupabase,
+  sairConta,
+  sincronizarSupabase,
+} from './supabase-sync.js';
 import { calcularPrecoVenda, brl } from './precificacao.js';
 import { renderKanban, novaOS, COLUNAS } from './kanban.js';
 
 const $ = (sel) => document.querySelector(sel);
-let driveConexaoEmAndamento = false;
+let supabaseAcaoEmAndamento = false;
 
 // ============================================================
 // INICIALIZAÇÃO
@@ -19,7 +25,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
 
 document.addEventListener('DOMContentLoaded', async () => {
   configurarTabs();
-  configurarGoogleDrive();
+  await configurarSupabaseUI();
   window.addEventListener('render-financeiro', renderFinanceiro);
   renderFinanceiro();
   await renderKanban();
@@ -45,98 +51,152 @@ function atualizarSelo() {
   selo.title = on ? 'Conexão com a internet disponível' : 'Dados continuam salvos neste dispositivo';
 }
 
-function configurarGoogleDrive() {
-  const config = lerConfiguracaoDrive();
-  if (config) {
-    $('#drive-client-id').value = config.clientId || '';
-    $('#drive-folder-url').value = config.folderUrl || '';
-    definirStatusDrive('Dados locais preservados. Conecte-se para verificar a planilha no Drive.');
-  } else {
-    definirStatusDrive('Os dados ficam neste dispositivo até você conectar uma pasta do Google Drive.');
+async function configurarSupabaseUI() {
+  try {
+    const state = await restaurarConfiguracaoSupabase();
+    atualizarSessaoSupabase(state.user);
+    definirStatusSupabase(state.user
+      ? `Conectado como ${state.user.email}.`
+      : 'Projeto Supabase pronto. Entre ou crie sua conta para sincronizar.');
+    if (state.user) agendarSincronizacaoAutomatica();
+  } catch (error) {
+    definirStatusSupabase(`Não foi possível iniciar a conexão Supabase: ${error.message}`, true);
   }
 
-  $('#btn-sync')?.addEventListener('click', () => conectarEAtualizar());
-  $('#btn-drive-conectar')?.addEventListener('click', () => conectarEAtualizar());
-  document.querySelectorAll('[data-drive-resolution]').forEach((button) => {
-    button.addEventListener('click', () => conectarEAtualizar(button.dataset.driveResolution));
+  $('#btn-supabase-entrar')?.addEventListener('click', () => autenticarSupabase('login'));
+  $('#btn-supabase-criar-conta')?.addEventListener('click', () => autenticarSupabase('signup'));
+  $('#btn-supabase-sair')?.addEventListener('click', desconectarSupabase);
+  $('#btn-sync')?.addEventListener('click', () => sincronizarEAtualizar());
+  document.querySelectorAll('[data-supabase-resolution]').forEach((button) => {
+    button.addEventListener('click', () => sincronizarEAtualizar(button.dataset.supabaseResolution));
   });
+  window.addEventListener('supabase-auth-changed', (event) => {
+    atualizarSessaoSupabase(event.detail.user);
+  });
+  window.addEventListener('supabase-sync-requested', agendarSincronizacaoAutomatica);
+  window.addEventListener('online', () => {
+    atualizarSelo();
+    agendarSincronizacaoAutomatica();
+  });
+}
 
-  let timer;
-  const sincronizarAutomaticamente = () => {
-    clearTimeout(timer);
-    timer = setTimeout(async () => {
-      if (!navigator.onLine) {
-        definirStatusDrive('Sem internet. As alterações foram salvas neste dispositivo e serão sincronizadas ao reconectar.');
+function atualizarSessaoSupabase(user) {
+  $('#supabase-session')?.classList.toggle('hidden', !user);
+  $('#supabase-account')?.classList.toggle('hidden', Boolean(user));
+  $('#supabase-session-email').textContent = user?.email || '';
+}
+
+async function autenticarSupabase(mode) {
+  if (supabaseAcaoEmAndamento) return;
+  supabaseAcaoEmAndamento = true;
+  const buttons = [...document.querySelectorAll('#btn-supabase-entrar, #btn-supabase-criar-conta')];
+  buttons.forEach((button) => { button.disabled = true; });
+  try {
+    const email = $('#supabase-email').value.trim();
+    const password = $('#supabase-password').value;
+    if (!email || !password) throw new Error('Informe seu e-mail e sua senha.');
+    if (mode === 'signup') {
+      const result = await cadastrarConta(email, password);
+      if (result.confirmationRequired) {
+        $('#supabase-password').value = '';
+        definirStatusSupabase('Conta criada. Confirme o e-mail enviado pelo Supabase e depois entre para sincronizar.');
         return;
       }
-      try {
-        const resultado = await sincronizarDrive();
-        if (!resultado.ok && resultado.motivo?.startsWith('Conecte-se ao Google Drive')) {
-          definirStatusDrive('Alterações salvas localmente. Conecte-se ao Google Drive para sincronizá-las.');
-          return;
-        }
-        await mostrarResultadoDrive(resultado);
-      } catch (error) {
-        definirStatusDrive(`Falha na sincronização automática: ${error.message}`, true);
-      }
-    }, 800);
-  };
-  window.addEventListener('drive-sync-requested', sincronizarAutomaticamente);
-  window.addEventListener('online', sincronizarAutomaticamente);
-}
-
-async function conectarEAtualizar(resolution = null) {
-  if (driveConexaoEmAndamento) return;
-  driveConexaoEmAndamento = true;
-  const buttons = [...document.querySelectorAll('#btn-sync, #btn-drive-conectar, [data-drive-resolution]')];
-  buttons.forEach((button) => { button.disabled = true; });
-  definirStatusDrive('Conectando ao Google Drive e verificando os dados…');
-  try {
-    const resultado = await conectarDrive({
-      clientId: $('#drive-client-id').value,
-      folderUrl: $('#drive-folder-url').value,
-      resolution,
-    });
-    await mostrarResultadoDrive(resultado);
+    } else {
+      await entrarConta(email, password);
+    }
+    $('#supabase-password').value = '';
+    atualizarSessaoSupabase({ email });
+    definirStatusSupabase(`Conectado como ${email}. Verificando a sincronização…`);
+    await sincronizarEAtualizar();
   } catch (error) {
-    definirStatusDrive(`Não foi possível sincronizar: ${error.message}`, true);
+    definirStatusSupabase(`Não foi possível autenticar: ${error.message}`, true);
   } finally {
     buttons.forEach((button) => { button.disabled = false; });
-    driveConexaoEmAndamento = false;
+    supabaseAcaoEmAndamento = false;
   }
 }
 
-function definirStatusDrive(message, error = false) {
-  const status = $('#drive-status');
+async function desconectarSupabase() {
+  try {
+    await sairConta();
+    atualizarSessaoSupabase(null);
+    definirStatusSupabase('Sessão encerrada. Os dados locais permanecem neste dispositivo.');
+  } catch (error) {
+    definirStatusSupabase(`Não foi possível encerrar a sessão: ${error.message}`, true);
+  }
+}
+
+let supabaseSyncTimer;
+function agendarSincronizacaoAutomatica() {
+  clearTimeout(supabaseSyncTimer);
+  supabaseSyncTimer = setTimeout(async () => {
+    if (!navigator.onLine) {
+      definirStatusSupabase('Sem internet. As alterações permanecem salvas neste dispositivo.');
+      return;
+    }
+    if ($('#supabase-session')?.classList.contains('hidden')) {
+      definirStatusSupabase('As alterações foram salvas neste dispositivo. Entre na sua conta Supabase para sincronizar.');
+      return;
+    }
+    try {
+      const result = await sincronizarSupabase();
+      await mostrarResultadoSupabase(result);
+    } catch (error) {
+      definirStatusSupabase(`Falha na sincronização automática: ${error.message}`, true);
+    }
+  }, 800);
+}
+
+async function sincronizarEAtualizar(resolution = null) {
+  if (supabaseAcaoEmAndamento) return;
+  supabaseAcaoEmAndamento = true;
+  const buttons = [...document.querySelectorAll('#btn-sync, [data-supabase-resolution]')];
+  buttons.forEach((button) => { button.disabled = true; });
+  definirStatusSupabase('Sincronizando dados…');
+  try {
+    const result = await sincronizarSupabase(resolution);
+    await mostrarResultadoSupabase(result);
+  } catch (error) {
+    definirStatusSupabase(`Não foi possível sincronizar: ${error.message}`, true);
+  } finally {
+    buttons.forEach((button) => { button.disabled = false; });
+    supabaseAcaoEmAndamento = false;
+  }
+}
+
+function definirStatusSupabase(message, error = false) {
+  const status = $('#supabase-status');
   if (!status) return;
   status.textContent = message;
   status.classList.toggle('text-red-600', error);
   status.classList.toggle('text-slate-600', !error);
 }
 
-async function mostrarResultadoDrive(resultado) {
-  const choices = $('#drive-resolution');
-  if (resultado.precisaEscolha) {
+async function mostrarResultadoSupabase(result) {
+  const choices = $('#supabase-resolution');
+  if (result.needsChoice) {
     choices?.classList.remove('hidden');
     choices?.classList.add('flex');
-    definirStatusDrive(
-      `Há dados diferentes nos dois lugares (${resultado.registrosLocais} locais e ${resultado.registrosDrive} na planilha). Escolha qual versão manter; um backup será criado no Drive antes da substituição.`
+    definirStatusSupabase(
+      `Os dados locais (${result.localCount}) e os da nuvem (${result.cloudCount}) são diferentes. Escolha qual manter. Ao usar a nuvem, o app baixa um backup local antes da substituição; ao usar o dispositivo, cria um backup da nuvem.`
     );
     return;
   }
   choices?.classList.add('hidden');
   choices?.classList.remove('flex');
-  if (!resultado.ok) {
-    definirStatusDrive(resultado.motivo || 'A sincronização não foi concluída.', true);
+  if (!result.ok) {
+    definirStatusSupabase(result.motivo || 'A sincronização não foi concluída.', true);
     return;
   }
   const mensagens = {
-    importado: `${resultado.registros} registro(s) carregado(s) da planilha do Google Drive.`,
-    enviado: `${resultado.registros} registro(s) salvo(s) na planilha do Google Drive.`,
-    atualizado: `${resultado.registros} registro(s) conferidos. Dados locais e do Drive estão iguais.`,
+    imported: `${result.count} registro(s) carregado(s) do Supabase.`,
+    uploaded: `${result.count} registro(s) salvo(s) no Supabase.`,
+    synced: `${result.count} registro(s) sincronizados.`,
+    ready: 'Supabase conectado; nenhum dado para sincronizar ainda.',
   };
-  definirStatusDrive(mensagens[resultado.acao] || 'Sincronização concluída.');
-  if (resultado.acao === 'importado') {
+  definirStatusSupabase(mensagens[result.action] || 'Sincronização concluída.');
+  if (result.action === 'imported') {
     await Promise.all([
       renderKanban(),
       renderFinanceiro(),

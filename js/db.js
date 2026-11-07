@@ -11,19 +11,28 @@ db.version(1).stores({
   ordens_servico: '++id, cliente_id, titulo, status, valor_total, sinal, criado_em, prazo',
 });
 
+db.version(2).stores({
+  clientes: '++id, nome, telefone, &email, criado_em',
+  insumos: '++id, nome, categoria, unidade, quantidade, custo_unitario, criado_em',
+  produtos: '++id, nome, tipo, preco_base, criado_em',
+  fichas_tecnicas: '++id, produto_id, nome, criado_em',
+  ordens_servico: '++id, cliente_id, titulo, status, valor_total, sinal, criado_em, prazo',
+  sync_backups: '++id, criado_em',
+});
+
 export const TABELAS = ['clientes', 'insumos', 'produtos', 'fichas_tecnicas', 'ordens_servico'];
 
 export function agendarSincronizacao() {
   try {
-    localStorage.setItem('atelie-drive-local-dirty', '1');
+    localStorage.setItem('atelie-supabase-local-dirty', '1');
   } catch {
-    // O snapshot local continua sendo válido; sem este marcador a sincronização pedirá confirmação.
+    // O banco local continua disponível; sem o marcador será pedida confirmação de conflito.
   }
-  window.dispatchEvent(new CustomEvent('drive-sync-requested'));
+  window.dispatchEvent(new CustomEvent('supabase-sync-requested'));
 }
 
 /**
- * Persiste localmente e agenda a sincronização com o Drive quando conectado.
+ * Persiste localmente e agenda a sincronização com o Supabase quando conectado.
  */
 export async function salvar(tabela, dados) {
   if (!TABELAS.includes(tabela)) throw new Error(`Tabela inválida: ${tabela}`);
@@ -34,7 +43,7 @@ export async function salvar(tabela, dados) {
 }
 
 /**
- * Remove localmente; a próxima sincronização replica a exclusão no Drive.
+ * Remove localmente; a próxima sincronização replica a exclusão no Supabase.
  */
 export async function remover(tabela, id) {
   if (!TABELAS.includes(tabela)) throw new Error(`Tabela inválida: ${tabela}`);
