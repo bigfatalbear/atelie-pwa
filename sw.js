@@ -5,7 +5,7 @@
  *   - Navegação: network-first com fallback ao cache (permite uso 100% offline)
  *   - Demais requisições: network-first
  */
-const CACHE_NAME = 'atelie-v8';
+const CACHE_NAME = 'atelie-v9';
 const APP_SHELL = [
   './',
   './index.html',
@@ -18,6 +18,7 @@ const APP_SHELL = [
   './js/supabase-sync.js',
   './js/precificacao.js',
   './js/precificacao-core.mjs',
+  './js/estoque.mjs',
   './js/catalogo.mjs',
   './js/kanban.js',
   './js/whatsapp.mjs',
