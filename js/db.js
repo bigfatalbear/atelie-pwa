@@ -20,7 +20,24 @@ db.version(2).stores({
   sync_backups: '++id, criado_em',
 });
 
-export const TABELAS = ['clientes', 'insumos', 'produtos', 'fichas_tecnicas', 'ordens_servico'];
+db.version(3).stores({
+  clientes: '++id, nome, telefone, &email, criado_em',
+  insumos: '++id, nome, categoria, unidade, quantidade, custo_unitario, estoque_minimo, criado_em',
+  produtos: '++id, nome, tipo, preco_base, criado_em',
+  fichas_tecnicas: '++id, produto_id, nome, criado_em',
+  ordens_servico: '++id, cliente_id, titulo, status, valor_total, sinal, criado_em, prazo',
+  sync_backups: '++id, criado_em',
+  movimentacoes_estoque: '++id, insumo_id, tipo, criado_em',
+});
+
+export const TABELAS = [
+  'clientes',
+  'insumos',
+  'produtos',
+  'fichas_tecnicas',
+  'ordens_servico',
+  'movimentacoes_estoque',
+];
 
 export function agendarSincronizacao() {
   try {

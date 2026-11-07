@@ -150,7 +150,7 @@ async function hashSnapshot(snapshot) {
 function normalizarSnapshot(snapshot) {
   const normalized = {};
   for (const tabela of TABELAS) {
-    const records = snapshot?.[tabela];
+    const records = snapshot?.[tabela] ?? (tabela === 'movimentacoes_estoque' ? [] : undefined);
     if (!Array.isArray(records)) throw new Error(`O snapshot Supabase não contém uma lista válida para "${tabela}".`);
     normalized[tabela] = records.map((record) => {
       if (!record || typeof record !== 'object' || Array.isArray(record) || !Number.isFinite(Number(record.id))) {

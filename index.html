@@ -300,25 +300,143 @@
 
     <!-- ====================== PÁGINA: INSUMOS ====================== -->
     <section data-page="insumos" class="hidden">
-      <h2 class="font-semibold text-slate-700 dark:text-slate-200 mb-3">Controle de Estoque de Insumos</h2>
-      <ul id="lista-insumos" class="flex flex-col gap-2 mb-6"><!-- renderizado pelo app.js --></ul>
-
-      <form id="form-insumo" class="bg-white dark:bg-slate-800 rounded-xl shadow p-4 space-y-3 border border-slate-200 dark:border-slate-700">
-        <h3 class="font-semibold">Cadastrar Insumo</h3>
-        <div class="grid gap-3 sm:grid-cols-2">
-          <input id="ins-nome" required placeholder="Nome (ex.: Metros EVA 2mm, Couché 250g)" class="input">
-          <select id="ins-unidade" class="input">
-            <option value="m">Metro (m)</option>
-            <option value="folha">Folha</option>
-            <option value="un">Unidade</option>
-            <option value="kg">Quilo (kg)</option>
-            <option value="bobina">Bobina</option>
-          </select>
-          <input id="ins-qtd" type="number" step="0.01" min="0" required placeholder="Quantidade em estoque" class="input">
-          <input id="ins-custo" type="number" step="0.01" min="0" required placeholder="Custo por unidade/metro/folha (R$)" class="input">
+      <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 class="font-semibold text-slate-700 dark:text-slate-200">Controle de Estoque de Insumos</h2>
+          <p class="mt-1 text-sm text-slate-500">Acompanhe saldo, custo, reposição e movimentações. Alterações ficam salvas offline e sincronizam com sua conta.</p>
         </div>
-        <button type="submit" class="btn-primario">Salvar insumo</button>
+        <button id="btn-estoque-nova-movimentacao" type="button" class="rounded-lg bg-sky-700 hover:bg-sky-600 px-4 py-2 text-sm font-medium text-white">Registrar movimentação</button>
+      </div>
+
+      <div id="estoque-resumo" class="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-live="polite"></div>
+
+      <div class="mb-4 grid gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800 sm:grid-cols-2 lg:grid-cols-4">
+        <label class="text-sm">Buscar insumo
+          <input id="estoque-busca" type="search" placeholder="Nome, fornecedor ou localização" class="input mt-1">
+        </label>
+        <label class="text-sm">Categoria
+          <select id="estoque-filtro-categoria" class="input mt-1"><option value="">Todas as categorias</option></select>
+        </label>
+        <label class="text-sm">Situação
+          <select id="estoque-filtro-situacao" class="input mt-1">
+            <option value="">Todas</option>
+            <option value="baixo">Estoque baixo</option>
+            <option value="zerado">Zerado / negativo</option>
+            <option value="regular">Regular</option>
+          </select>
+        </label>
+        <label class="text-sm">Ordenar por
+          <select id="estoque-ordenacao" class="input mt-1">
+            <option value="nome">Nome (A–Z)</option>
+            <option value="quantidade">Menor saldo</option>
+            <option value="valor">Maior valor em estoque</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="mb-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+          <h3 class="font-semibold">Insumos cadastrados</h3>
+          <span id="estoque-contagem" class="text-xs text-slate-500"></span>
+        </div>
+        <div id="lista-insumos" class="divide-y divide-slate-200 dark:divide-slate-700"><!-- renderizado pelo app.js --></div>
+      </div>
+
+      <div class="mb-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+          <h3 class="font-semibold">Movimentações recentes</h3>
+          <p class="mt-1 text-xs text-slate-500">Inclui entradas, saídas manuais e consumo/estorno vinculado à produção de ordens de serviço.</p>
+        </div>
+        <div id="lista-movimentacoes-estoque" class="divide-y divide-slate-200 dark:divide-slate-700"></div>
+      </div>
+
+      <form id="form-insumo" class="scroll-mt-24 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <input id="ins-id" type="hidden">
+        <div class="mb-4">
+          <h3 id="ins-form-titulo" class="font-semibold">Cadastrar insumo</h3>
+          <p class="mt-1 text-sm text-slate-500">Defina unidade, custo médio e nível mínimo para alertas de reposição.</p>
+        </div>
+        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <label class="text-sm sm:col-span-2">Nome do insumo
+            <input id="ins-nome" required maxlength="100" placeholder="Ex.: EVA 2 mm, papel couché 250 g" class="input mt-1">
+          </label>
+          <label class="text-sm">Unidade de medida
+            <select id="ins-unidade" class="input mt-1">
+              <option value="m">Metro (m)</option>
+              <option value="cm">Centímetro (cm)</option>
+              <option value="folha">Folha</option>
+              <option value="un">Unidade</option>
+              <option value="kg">Quilo (kg)</option>
+              <option value="g">Grama (g)</option>
+              <option value="l">Litro (L)</option>
+              <option value="ml">Mililitro (ml)</option>
+              <option value="bobina">Bobina</option>
+              <option value="pacote">Pacote</option>
+            </select>
+          </label>
+          <label class="text-sm">Categoria
+            <input id="ins-categoria" maxlength="60" placeholder="Ex.: Papelaria, tecido, acabamento" class="input mt-1">
+          </label>
+          <label class="text-sm">Fornecedor
+            <input id="ins-fornecedor" maxlength="100" placeholder="Nome do fornecedor" class="input mt-1">
+          </label>
+          <label class="text-sm">Localização
+            <input id="ins-localizacao" maxlength="80" placeholder="Ex.: Armário A, prateleira 2" class="input mt-1">
+          </label>
+          <label class="text-sm">Quantidade atual
+            <input id="ins-qtd" type="number" step="0.001" min="0" required placeholder="0,00" class="input mt-1">
+            <span id="ins-qtd-help" class="mt-1 block text-xs text-slate-500">Para corrigir o saldo, use o registro de movimentação.</span>
+          </label>
+          <label class="text-sm">Custo unitário médio (R$)
+            <input id="ins-custo" type="number" step="0.01" min="0" required placeholder="0,00" class="input mt-1">
+          </label>
+          <label class="text-sm">Estoque mínimo para alerta
+            <input id="ins-minimo" type="number" step="0.001" min="0" value="0" required placeholder="0" class="input mt-1">
+          </label>
+        </div>
+        <div class="mt-4 flex flex-wrap gap-2">
+          <button id="ins-submit" type="submit" class="btn-primario">Salvar insumo</button>
+          <button id="ins-cancelar" type="button" class="hidden rounded-lg bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600">Cancelar edição</button>
+        </div>
+        <p id="estoque-status" class="mt-3 text-sm" role="status" aria-live="polite"></p>
       </form>
+
+      <dialog id="dialog-movimentacao-estoque" class="w-[min(34rem,calc(100%-2rem))] rounded-xl bg-white p-0 text-slate-900 shadow-2xl backdrop:bg-slate-950/60 dark:bg-slate-800 dark:text-slate-100">
+        <form id="form-movimentacao-estoque" class="space-y-4 p-5">
+          <div>
+            <h3 class="text-lg font-semibold">Registrar movimentação</h3>
+            <p class="mt-1 text-sm text-slate-500">O saldo e o histórico são atualizados juntos.</p>
+          </div>
+          <label class="block text-sm">Insumo
+            <select id="mov-insumo-id" required class="input mt-1"></select>
+          </label>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <label class="text-sm">Tipo
+              <select id="mov-tipo" required class="input mt-1">
+                <option value="entrada">Entrada / compra</option>
+                <option value="saida">Saída / uso</option>
+                <option value="perda">Perda / descarte</option>
+                <option value="ajuste">Ajuste de saldo</option>
+              </select>
+            </label>
+            <label id="mov-quantidade-label" class="text-sm">Quantidade
+              <input id="mov-quantidade" required type="number" step="0.001" min="0.001" class="input mt-1">
+            </label>
+          </div>
+          <label id="mov-custo-label" class="block text-sm">Custo unitário desta entrada (R$)
+            <input id="mov-custo" type="number" step="0.01" min="0" class="input mt-1">
+            <span class="mt-1 block text-xs text-slate-500">Será calculado o custo médio ponderado do insumo.</span>
+          </label>
+          <label class="block text-sm">Motivo / observação
+            <input id="mov-motivo" required maxlength="160" placeholder="Ex.: Compra, reposição, perda ou conferência" class="input mt-1">
+          </label>
+          <p id="mov-status" class="text-sm" role="status" aria-live="polite"></p>
+          <div class="flex justify-end gap-2">
+            <button id="mov-cancelar" type="button" class="rounded-lg bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600">Cancelar</button>
+            <button id="mov-salvar" type="submit" class="btn-primario">Salvar movimentação</button>
+          </div>
+        </form>
+      </dialog>
     </section>
 
     <!-- ====================== PÁGINA: PRECIFICAÇÃO ====================== -->

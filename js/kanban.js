@@ -37,11 +37,11 @@ export async function moverOS(id, novoStatus) {
 
   // Ao ENTRAR em "Em Produção": desconta matéria-prima do estoque
   if (novoStatus === 'Em Produção' && os.status !== 'Em Produção') {
-    await descontarEstoque(db, itens);
+    await descontarEstoque(db, itens, os.id);
   }
   // Se SAIR de "Em Produção" (cancelamento / voltar): estorna
   if (os.status === 'Em Produção' && novoStatus !== 'Em Produção') {
-    await estornarEstoque(db, itens);
+    await estornarEstoque(db, itens, os.id);
   }
 
   await salvar('ordens_servico', { ...os, status: novoStatus });
@@ -55,7 +55,7 @@ export async function excluirOS(id) {
   if (os.status === 'Em Produção') {
     // Estorna insumos consumidos
     const itens = typeof os.itens === 'string' ? JSON.parse(os.itens || '[]') : (os.itens || []);
-    await estornarEstoque(db, itens);
+    await estornarEstoque(db, itens, os.id);
   }
   await remover('ordens_servico', id);
   await renderKanban();

@@ -1,7 +1,7 @@
 /**
  * app.js — Inicialização, navegação e interfaces (Insumos, Precificação, Nova OS)
  */
-import { db, remover, salvar } from './db.js';
+import { agendarSincronizacao, db, remover, salvar } from './db.js';
 import {
   cadastrarConta,
   entrarConta,
@@ -14,6 +14,13 @@ import { calcularPrecoVenda, brl } from './precificacao.js';
 import { renderKanban, novaOS, COLUNAS } from './kanban.js';
 import { criarLinkWhatsapp, montarMensagemOrcamento, normalizarTelefoneWhatsapp } from './whatsapp.mjs';
 import { calcularCustoFicha, criarRascunhoOrcamento, lerComposicaoFicha } from './catalogo.mjs';
+import {
+  calcularResumoEstoque,
+  classificarEstoque,
+  criarInsumoComEstoque,
+  registrarMovimentacoesEstoque,
+  validarDadosInsumo,
+} from './estoque.mjs';
 
 const $ = (sel) => document.querySelector(sel);
 const CHAVE_IDENTIDADE = 'atelie-identidade-visual';
@@ -58,6 +65,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   await renderCatalogo();
 
   $('#form-insumo')?.addEventListener('submit', aoCadastrarInsumo);
+  $('#ins-cancelar')?.addEventListener('click', cancelarEdicaoInsumo);
+  $('#estoque-busca')?.addEventListener('input', renderInsumos);
+  ['#estoque-filtro-categoria', '#estoque-filtro-situacao', '#estoque-ordenacao'].forEach((selector) => {
+    $(selector)?.addEventListener('change', renderInsumos);
+  });
+  $('#btn-estoque-nova-movimentacao')?.addEventListener('click', () => abrirMovimentacaoEstoque());
+  $('#form-movimentacao-estoque')?.addEventListener('submit', aoRegistrarMovimentacaoEstoque);
+  $('#mov-tipo')?.addEventListener('change', atualizarCamposMovimentacao);
+  $('#mov-cancelar')?.addEventListener('click', () => $('#dialog-movimentacao-estoque').close());
+  $('#lista-insumos')?.addEventListener('click', aoAcionarInsumoEstoque);
+  window.addEventListener('estoque-atualizado', atualizarVistasEstoque);
   $('#form-os')?.addEventListener('submit', aoCadastrarOS);
   $('#btn-os-adicionar-produtos')?.addEventListener('click', alternarPainelProdutosOS);
   $('#btn-os-personalizar-mensagem')?.addEventListener('click', alternarPainelMensagemOS);
@@ -506,32 +524,281 @@ function configurarTabs() {
 // ============================================================
 // CADASTRO DE INSUMOS
 // ============================================================
+function formatarQuantidade(valor) {
+  return (Number(valor) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+}
+
+function definirStatusEstoque(mensagem, erro = false) {
+  const status = $('#estoque-status');
+  if (!status) return;
+  status.textContent = mensagem;
+  status.classList.toggle('text-red-500', erro);
+  status.classList.toggle('text-emerald-500', !erro);
+}
+
+async function atualizarVistasEstoque() {
+  await Promise.all([
+    renderInsumos(),
+    renderCalcInsumos(),
+    renderSelectInsumos(),
+    renderCatalogo(),
+  ]);
+}
+
 async function aoCadastrarInsumo(e) {
   e.preventDefault();
-  const nome = $('#ins-nome').value.trim();
-  const quantidade = parseFloat($('#ins-qtd').value) || 0;
-  const unidade = $('#ins-unidade').value;
-  const custo_unitario = parseFloat($('#ins-custo').value) || 0;
-  if (!nome) return;
-  await salvar('insumos', { nome, quantidade, unidade, custo_unitario, categoria: 'matéria-prima', criado_em: new Date().toISOString() });
-  e.target.reset();
-  await renderInsumos();
-  await renderCalcInsumos();
-  await renderSelectInsumos();
-  await renderCatalogo();
+  const button = $('#ins-submit');
+  button.disabled = true;
+  try {
+    const id = Number($('#ins-id').value) || null;
+    const dados = validarDadosInsumo({
+      nome: $('#ins-nome').value,
+      quantidade: $('#ins-qtd').value,
+      unidade: $('#ins-unidade').value,
+      custo_unitario: $('#ins-custo').value,
+      estoque_minimo: $('#ins-minimo').value,
+      categoria: $('#ins-categoria').value,
+      fornecedor: $('#ins-fornecedor').value,
+      localizacao: $('#ins-localizacao').value,
+    });
+    if (id) {
+      const atual = await db.insumos.get(id);
+      if (!atual) throw new Error('Este insumo não está mais cadastrado.');
+      await salvar('insumos', { ...atual, ...dados, id, quantidade: Number(atual.quantidade) || 0 });
+      definirStatusEstoque('Cadastro do insumo atualizado. O saldo foi preservado; ajuste quantidades em “Registrar movimentação”.');
+    } else {
+      await criarInsumoComEstoque(db, dados);
+      agendarSincronizacao();
+      definirStatusEstoque('Insumo cadastrado e estoque inicial registrado no histórico.');
+    }
+    cancelarEdicaoInsumo(false);
+    await atualizarVistasEstoque();
+  } catch (error) {
+    definirStatusEstoque(error.message || 'Não foi possível salvar o insumo.', true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function cancelarEdicaoInsumo(limparStatus = true) {
+  $('#form-insumo').reset();
+  $('#ins-id').value = '';
+  $('#ins-qtd').disabled = false;
+  $('#ins-qtd-help').textContent = 'Para corrigir o saldo, use o registro de movimentação.';
+  $('#ins-form-titulo').textContent = 'Cadastrar insumo';
+  $('#ins-submit').textContent = 'Salvar insumo';
+  $('#ins-cancelar').classList.add('hidden');
+  if (limparStatus) definirStatusEstoque('');
 }
 
 async function renderInsumos() {
   const lista = $('#lista-insumos');
   if (!lista) return;
-  const insumos = await db.insumos.toArray();
-  lista.innerHTML = insumos.map((i) => `
-    <li class="flex justify-between items-center bg-white dark:bg-slate-700 rounded-lg px-3 py-2 text-sm border border-slate-200 dark:border-slate-600">
-      <span><strong>${i.nome}</strong> <em class="text-slate-500">(${i.unidade ?? ''})</em></span>
-      <span class="tabular-nums ${i.quantidade <= 0 ? 'text-red-500 font-bold' : ''}">
-        ${i.quantidade} × ${brl(i.custo_unitario || 0)}
-      </span>
-    </li>`).join('') || '<li class="text-sm text-slate-400 italic">Nenhum insumo cadastrado.</li>';
+  const [insumos, movimentos] = await Promise.all([
+    db.insumos.toArray(),
+    db.movimentacoes_estoque.toArray(),
+  ]);
+  insumos.sort((a, b) => String(a.nome ?? '').localeCompare(String(b.nome ?? ''), 'pt-BR'));
+  const resumo = calcularResumoEstoque(insumos);
+  $('#estoque-resumo').innerHTML = [
+    ['Insumos cadastrados', resumo.itens, 'text-slate-800 dark:text-white'],
+    ['Valor estimado em estoque', brl(resumo.valor), 'text-sky-700 dark:text-sky-300'],
+    ['Abaixo do mínimo', resumo.baixos, 'text-amber-600 dark:text-amber-400'],
+    ['Zerados / negativos', resumo.zerados, 'text-red-600 dark:text-red-400'],
+  ].map(([label, valor, color]) => `
+    <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      <p class="text-xs font-medium uppercase tracking-wide text-slate-500">${label}</p>
+      <p class="mt-2 text-2xl font-bold tabular-nums ${color}">${valor}</p>
+    </article>`).join('');
+
+  const categoriaSelect = $('#estoque-filtro-categoria');
+  const categoriaAtual = categoriaSelect.value;
+  const categorias = [...new Set(insumos.map((insumo) => String(insumo.categoria || 'Sem categoria')))]
+    .sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  categoriaSelect.innerHTML = '<option value="">Todas as categorias</option>' +
+    categorias.map((categoria) => `<option value="${escaparHtml(categoria)}">${escaparHtml(categoria)}</option>`).join('');
+  categoriaSelect.value = categorias.includes(categoriaAtual) ? categoriaAtual : '';
+
+  const busca = $('#estoque-busca').value.trim().toLocaleLowerCase('pt-BR');
+  const situacao = $('#estoque-filtro-situacao').value;
+  const categoria = categoriaSelect.value;
+  const ordenacao = $('#estoque-ordenacao').value;
+  const filtrados = insumos.filter((insumo) => {
+    const texto = [insumo.nome, insumo.fornecedor, insumo.localizacao, insumo.categoria]
+      .join(' ').toLocaleLowerCase('pt-BR');
+    return (!busca || texto.includes(busca))
+      && (!categoria || String(insumo.categoria || 'Sem categoria') === categoria)
+      && (!situacao || classificarEstoque(insumo) === situacao);
+  });
+  if (ordenacao === 'quantidade') {
+    filtrados.sort((a, b) => (Number(a.quantidade) || 0) - (Number(b.quantidade) || 0));
+  } else if (ordenacao === 'valor') {
+    filtrados.sort((a, b) =>
+      ((Number(b.quantidade) || 0) * (Number(b.custo_unitario) || 0))
+      - ((Number(a.quantidade) || 0) * (Number(a.custo_unitario) || 0)));
+  }
+  $('#estoque-contagem').textContent = `${filtrados.length} de ${insumos.length} insumo(s)`;
+  lista.innerHTML = filtrados.map((insumo) => {
+    const situacaoItem = classificarEstoque(insumo);
+    const status = situacaoItem === 'zerado'
+      ? ['Zerado / negativo', 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300']
+      : situacaoItem === 'baixo'
+        ? ['Abaixo do mínimo', 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300']
+        : ['Regular', 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'];
+    const valor = (Number(insumo.quantidade) || 0) * (Number(insumo.custo_unitario) || 0);
+    return `
+      <article class="grid gap-3 p-4 md:grid-cols-[minmax(0,1.5fr)_repeat(3,minmax(7rem,0.7fr))_auto] md:items-center">
+        <div class="min-w-0">
+          <div class="flex flex-wrap items-center gap-2">
+            <h4 class="truncate font-semibold">${escaparHtml(insumo.nome)}</h4>
+            <span class="rounded-full px-2 py-0.5 text-[11px] font-medium ${status[1]}">${status[0]}</span>
+          </div>
+          <p class="mt-1 text-xs text-slate-500">${escaparHtml(insumo.categoria || 'Sem categoria')}
+            ${insumo.fornecedor ? ` · ${escaparHtml(insumo.fornecedor)}` : ''}
+            ${insumo.localizacao ? ` · ${escaparHtml(insumo.localizacao)}` : ''}</p>
+        </div>
+        <div>
+          <p class="text-xs text-slate-500">Saldo atual</p>
+          <p class="font-semibold tabular-nums">${formatarQuantidade(insumo.quantidade)} ${escaparHtml(insumo.unidade || '')}</p>
+          <p class="text-xs text-slate-500">Mínimo: ${formatarQuantidade(insumo.estoque_minimo)} ${escaparHtml(insumo.unidade || '')}</p>
+        </div>
+        <div>
+          <p class="text-xs text-slate-500">Custo unitário médio</p>
+          <p class="font-medium tabular-nums">${brl(insumo.custo_unitario || 0)}</p>
+        </div>
+        <div>
+          <p class="text-xs text-slate-500">Valor em estoque</p>
+          <p class="font-medium tabular-nums">${brl(Math.max(0, valor))}</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button type="button" data-movimentar-insumo="${insumo.id}" class="rounded-lg bg-sky-700 px-3 py-2 text-xs font-medium text-white hover:bg-sky-600">Movimentar</button>
+          <button type="button" data-editar-insumo="${insumo.id}" class="rounded-lg bg-slate-200 px-3 py-2 text-xs font-medium text-slate-800 hover:bg-slate-300 dark:bg-slate-700 dark:text-white dark:hover:bg-slate-600">Editar</button>
+        </div>
+      </article>`;
+  }).join('') || `<p class="p-6 text-center text-sm text-slate-500">${insumos.length ? 'Nenhum insumo corresponde aos filtros.' : 'Nenhum insumo cadastrado.'}</p>`;
+
+  movimentos.sort((a, b) =>
+    String(b.criado_em || '').localeCompare(String(a.criado_em || '')) || Number(b.id) - Number(a.id));
+  $('#lista-movimentacoes-estoque').innerHTML = movimentos.slice(0, 30).map((movimento) => {
+    const positivo = Number(movimento.variacao) >= 0;
+    const descricao = {
+      entrada: 'Entrada',
+      saida: 'Saída',
+      perda: 'Perda / descarte',
+      ajuste: 'Ajuste de saldo',
+    }[movimento.tipo] || movimento.tipo;
+    const data = new Date(movimento.criado_em);
+    const dataFormatada = Number.isNaN(data.getTime()) ? 'Data indisponível' : data.toLocaleString('pt-BR');
+    const saldo = Number(movimento.saldo_posterior);
+    return `
+      <article class="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm">
+        <div class="min-w-0">
+          <p class="font-medium">${escaparHtml(movimento.insumo_nome || 'Insumo removido')} <span class="text-slate-500">· ${escaparHtml(descricao)}</span></p>
+          <p class="mt-1 text-xs text-slate-500">${escaparHtml(movimento.motivo || 'Sem observação')} · ${dataFormatada}
+            ${movimento.referencia ? ` · ${escaparHtml(movimento.referencia)}` : ''}</p>
+        </div>
+        <div class="text-right">
+          <p class="font-semibold tabular-nums ${positivo ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}">${positivo ? '+' : ''}${formatarQuantidade(movimento.variacao)} ${escaparHtml(insumos.find((item) => item.id === movimento.insumo_id)?.unidade || '')}</p>
+          <p class="text-xs text-slate-500">Saldo: ${formatarQuantidade(saldo)}</p>
+        </div>
+      </article>`;
+  }).join('') || '<p class="p-6 text-center text-sm text-slate-500">Nenhuma movimentação registrada.</p>';
+}
+
+function editarInsumo(id) {
+  db.insumos.get(id).then((insumo) => {
+    if (!insumo) {
+      definirStatusEstoque('Este insumo não está mais cadastrado.', true);
+      return;
+    }
+    $('#ins-id').value = String(insumo.id);
+    $('#ins-nome').value = insumo.nome || '';
+    $('#ins-unidade').value = insumo.unidade || 'un';
+    $('#ins-categoria').value = insumo.categoria || '';
+    $('#ins-fornecedor').value = insumo.fornecedor || '';
+    $('#ins-localizacao').value = insumo.localizacao || '';
+    $('#ins-qtd').value = String(Number(insumo.quantidade) || 0);
+    $('#ins-qtd').disabled = true;
+    $('#ins-qtd-help').textContent = 'Saldo protegido contra edição direta. Use “Registrar movimentação” para entradas, saídas ou ajustes.';
+    $('#ins-custo').value = String(Number(insumo.custo_unitario) || 0);
+    $('#ins-minimo').value = String(Number(insumo.estoque_minimo) || 0);
+    $('#ins-form-titulo').textContent = 'Editar cadastro do insumo';
+    $('#ins-submit').textContent = 'Salvar alterações';
+    $('#ins-cancelar').classList.remove('hidden');
+    $('#form-insumo').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    $('#ins-nome').focus({ preventScroll: true });
+  }).catch((error) => definirStatusEstoque(error.message || 'Não foi possível carregar o insumo.', true));
+}
+
+function aoAcionarInsumoEstoque(event) {
+  const editar = event.target.closest('[data-editar-insumo]');
+  if (editar) {
+    editarInsumo(Number(editar.dataset.editarInsumo));
+    return;
+  }
+  const movimentar = event.target.closest('[data-movimentar-insumo]');
+  if (movimentar) abrirMovimentacaoEstoque(Number(movimentar.dataset.movimentarInsumo));
+}
+
+async function abrirMovimentacaoEstoque(insumoId = null) {
+  try {
+    const insumos = await db.insumos.toArray();
+    insumos.sort((a, b) => String(a.nome ?? '').localeCompare(String(b.nome ?? ''), 'pt-BR'));
+    const select = $('#mov-insumo-id');
+    select.innerHTML = '<option value="">Selecione um insumo</option>' +
+      insumos.map((insumo) => `<option value="${insumo.id}">${escaparHtml(insumo.nome)} · saldo ${formatarQuantidade(insumo.quantidade)} ${escaparHtml(insumo.unidade || '')}</option>`).join('');
+    $('#form-movimentacao-estoque').reset();
+    select.value = insumoId ? String(insumoId) : '';
+    $('#mov-status').textContent = '';
+    $('#mov-status').classList.remove('text-red-500');
+    atualizarCamposMovimentacao();
+    $('#dialog-movimentacao-estoque').showModal();
+    select.focus();
+  } catch (error) {
+    definirStatusEstoque(error.message || 'Não foi possível abrir as movimentações.', true);
+  }
+}
+
+function atualizarCamposMovimentacao() {
+  const tipo = $('#mov-tipo').value;
+  const entrada = tipo === 'entrada';
+  $('#mov-custo-label').classList.toggle('hidden', !entrada);
+  $('#mov-quantidade-label').firstChild.textContent = tipo === 'ajuste' ? 'Novo saldo' : 'Quantidade';
+  $('#mov-quantidade').min = tipo === 'ajuste' ? '0' : '0.001';
+}
+
+async function aoRegistrarMovimentacaoEstoque(event) {
+  event.preventDefault();
+  const button = $('#mov-salvar');
+  button.disabled = true;
+  try {
+    const tipo = $('#mov-tipo').value;
+    const insumoId = Number($('#mov-insumo-id').value);
+    if ($('#mov-quantidade').value === '') throw new Error('Informe a quantidade da movimentação.');
+    const quantidade = Number($('#mov-quantidade').value);
+    const motivo = $('#mov-motivo').value.trim();
+    const insumo = await db.insumos.get(insumoId);
+    if (!insumo) throw new Error('Selecione um insumo cadastrado.');
+    if (!motivo) throw new Error('Informe o motivo da movimentação.');
+    await registrarMovimentacoesEstoque(db, [{
+      insumo_id: insumoId,
+      tipo,
+      quantidade,
+      ...(tipo === 'entrada' && $('#mov-custo').value !== ''
+        ? { custo_unitario: Number($('#mov-custo').value) }
+        : {}),
+      motivo,
+      origem: 'manual',
+    }]);
+    agendarSincronizacao();
+    $('#dialog-movimentacao-estoque').close();
+    await atualizarVistasEstoque();
+  } catch (error) {
+    $('#mov-status').textContent = error.message || 'Não foi possível registrar a movimentação.';
+    $('#mov-status').classList.add('text-red-500');
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function renderSelectInsumos() {
@@ -540,8 +807,8 @@ async function renderSelectInsumos() {
   const insumos = await db.insumos.toArray();
   sel.innerHTML = insumos.map((i) =>
     `<label class="flex items-center gap-2 text-sm py-1 flex-wrap">
-      <input type="checkbox" value="${i.id}" data-nome="${i.nome}" data-custo="${i.custo_unitario || 0}">
-      <span>${i.nome} <span class="text-xs text-slate-400">(estoque: ${i.quantidade})</span></span>
+      <input type="checkbox" value="${i.id}" data-nome="${escaparHtml(i.nome)}" data-custo="${Number(i.custo_unitario) || 0}">
+      <span>${escaparHtml(i.nome)} <span class="text-xs text-slate-400">(estoque: ${formatarQuantidade(i.quantidade)} ${escaparHtml(i.unidade || '')})</span></span>
       <input type="number" min="0" step="0.01" value="1" placeholder="Qtd" class="input !w-20 !py-1 ml-auto">
     </label>`).join('');
 }

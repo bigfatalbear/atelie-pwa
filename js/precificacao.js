@@ -1,4 +1,5 @@
 import { agendarSincronizacao } from './db.js';
+import { registrarMovimentacoesEstoque } from './estoque.mjs';
 import { brl, calcularPrecoVenda } from './precificacao-core.mjs';
 
 export { brl, calcularPrecoVenda };
@@ -35,36 +36,38 @@ export { brl, calcularPrecoVenda };
  * @param {Dexie} db - instância Dexie
  * @param {Array<{insumo_id: number, quantidade: number}>} itens
  */
-export async function descontarEstoque(db, itens = []) {
-  await db.transaction('rw', db.insumos, async () => {
-    for (const item of itens) {
-      const insumo = await db.insumos.get(item.insumo_id);
-      if (!insumo) continue;
-      const novaQtd = (insumo.quantidade || 0) - (item.quantidade || 0);
-      await db.insumos.update(item.insumo_id, {
-        quantidade: novaQtd,
-        synced: 0, // marca para sync
-        atualizado_em: new Date().toISOString(),
-      });
-    }
-  });
-  agendarSincronizacao();
+export async function descontarEstoque(db, itens = [], osId = null) {
+  await registrarMovimentacoesEstoque(db, itens.map((item) => ({
+    insumo_id: item.insumo_id,
+    quantidade: item.quantidade,
+    tipo: 'saida',
+    permitirNegativo: true,
+    ignorarAusente: true,
+    motivo: `Consumo automático na produção${osId ? ` da OS #${osId}` : ' da ordem de serviço'}`,
+    origem: 'ordem_servico',
+    referencia: osId ? `OS #${osId}` : '',
+  })));
+  if (itens.length) {
+    agendarSincronizacao();
+    window.dispatchEvent(new CustomEvent('estoque-atualizado'));
+  }
 }
 
 /**
  * Estorna insumos ao estoque (caso a OS seja cancelada/volte de status).
  */
-export async function estornarEstoque(db, itens = []) {
-  await db.transaction('rw', db.insumos, async () => {
-    for (const item of itens) {
-      const insumo = await db.insumos.get(item.insumo_id);
-      if (!insumo) continue;
-      await db.insumos.update(item.insumo_id, {
-        quantidade: (insumo.quantidade || 0) + (item.quantidade || 0),
-        synced: 0,
-        atualizado_em: new Date().toISOString(),
-      });
-    }
-  });
-  agendarSincronizacao();
+export async function estornarEstoque(db, itens = [], osId = null) {
+  await registrarMovimentacoesEstoque(db, itens.map((item) => ({
+    insumo_id: item.insumo_id,
+    quantidade: item.quantidade,
+    tipo: 'entrada',
+    ignorarAusente: true,
+    motivo: `Estorno de consumo${osId ? ` da OS #${osId}` : ' da ordem de serviço'}`,
+    origem: 'ordem_servico',
+    referencia: osId ? `OS #${osId}` : '',
+  })));
+  if (itens.length) {
+    agendarSincronizacao();
+    window.dispatchEvent(new CustomEvent('estoque-atualizado'));
+  }
 }
