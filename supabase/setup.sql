@@ -25,7 +25,7 @@ create policy "Owners can update their snapshot"
   using ((select auth.uid()) = owner_id)
   with check ((select auth.uid()) = owner_id);
 
-revoke all on public.atelie_snapshots from anon, authenticated;
+revoke all on public.atelie_snapshots from public, anon, authenticated;
 grant select, insert, update on public.atelie_snapshots to authenticated;
 
 create table if not exists public.atelie_snapshot_backups (
@@ -48,7 +48,7 @@ create policy "Owners can create their backups"
   on public.atelie_snapshot_backups for insert to authenticated
   with check ((select auth.uid()) = owner_id);
 
-revoke all on public.atelie_snapshot_backups from anon, authenticated;
+revoke all on public.atelie_snapshot_backups from public, anon, authenticated;
 grant select, insert on public.atelie_snapshot_backups to authenticated;
-revoke all on sequence public.atelie_snapshot_backups_id_seq from anon, authenticated;
+revoke all on sequence public.atelie_snapshot_backups_id_seq from public, anon, authenticated;
 grant usage, select on sequence public.atelie_snapshot_backups_id_seq to authenticated;
