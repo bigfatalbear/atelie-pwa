@@ -99,7 +99,7 @@ async function autenticarSupabase(mode) {
       const result = await cadastrarConta(email, password);
       if (result.confirmationRequired) {
         $('#supabase-password').value = '';
-        definirStatusSupabase('Conta criada. Confirme o e-mail enviado pelo Supabase e depois entre para sincronizar.');
+        definirStatusSupabase(`Conta criada. Enviamos um e-mail de confirmação para ${email}. Verifique sua caixa de entrada e a pasta de spam e confirme o cadastro antes de entrar.`);
         return;
       }
     } else {
