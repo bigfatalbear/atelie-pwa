@@ -9,8 +9,8 @@
   <meta name="theme-color" content="#0f172a">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <link rel="icon" href="icons/icon-192.png">
-  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="icon" type="image/jpeg" href="icons/icon-192.jpg">
+  <link rel="apple-touch-icon" href="icons/icon-192.jpg">
   <!-- Tailwind via CDN (troque por build próprio no Vite para produção) -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -23,7 +23,10 @@
   <!-- ====================== CABEÇALHO ====================== -->
   <header class="bg-slate-800 dark:bg-slate-950 text-white px-4 py-3 sticky top-0 z-40">
     <div class="max-w-6xl mx-auto flex items-center justify-between gap-3">
-      <h1 class="font-bold text-lg tracking-tight">🖨️ Ateliê Manager</h1>
+      <h1 class="flex items-center gap-2 font-bold text-lg tracking-tight">
+        <img src="icons/icon-192.jpg" alt="Logo do Ateliê" class="h-10 w-10 shrink-0 rounded-lg bg-white object-cover ring-1 ring-white/20">
+        <span>Ateliê Manager</span>
+      </h1>
       <div class="flex items-center gap-3">
         <button id="btn-sync" class="text-xs bg-slate-700 hover:bg-slate-600 rounded-full px-3 py-1" title="Sincronizar com Supabase">⭳ Sync</button>
         <span id="selo-sync" class="text-xs font-mono">🟢 Online</span>
