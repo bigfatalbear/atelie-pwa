@@ -5,7 +5,7 @@
  *   - Navegação: network-first com fallback ao cache (permite uso 100% offline)
  *   - Demais requisições: network-first
  */
-const CACHE_NAME = 'atelie-v7';
+const CACHE_NAME = 'atelie-v8';
 const APP_SHELL = [
   './',
   './index.html',

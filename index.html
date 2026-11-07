@@ -109,6 +109,33 @@
           <input id="os-valor" type="number" step="0.01" min="0" placeholder="Valor total (R$) — ou use a calculadora" class="input">
           <input id="os-sinal" type="number" step="0.01" min="0" placeholder="Sinal pago (R$) — saldo devido na entrega" class="input">
         </div>
+        <div class="flex flex-wrap gap-2">
+          <button id="btn-os-adicionar-produtos" type="button" aria-expanded="false" aria-controls="os-adicionar-produtos-painel" class="rounded-lg bg-sky-700 hover:bg-sky-600 text-white px-3 py-2 text-sm">Adicionar produtos</button>
+          <button id="btn-os-personalizar-mensagem" type="button" aria-expanded="false" aria-controls="os-personalizar-mensagem-painel" class="rounded-lg bg-violet-700 hover:bg-violet-600 text-white px-3 py-2 text-sm">Personalizar mensagem para cliente</button>
+        </div>
+        <section id="os-adicionar-produtos-painel" class="hidden space-y-3 rounded-lg border border-slate-600 p-3" aria-label="Adicionar produtos à ordem de serviço">
+          <h4 class="text-sm font-semibold">Produtos do catálogo</h4>
+          <div class="grid gap-3 sm:grid-cols-3">
+            <label class="text-sm sm:col-span-3">Produto
+              <select id="os-produto-selecao" class="input mt-1"></select>
+            </label>
+            <label class="text-sm">Quantidade
+              <input id="os-produto-quantidade" type="number" min="1" step="1" value="1" class="input mt-1">
+            </label>
+            <label class="text-sm sm:col-span-2">Preço unitário (R$)
+              <input id="os-produto-preco" type="number" min="0" step="0.01" class="input mt-1">
+            </label>
+          </div>
+          <button id="btn-os-confirmar-produto" type="button" class="rounded-lg bg-sky-700 hover:bg-sky-600 text-white px-3 py-2 text-sm">Incluir produto na OS</button>
+          <ul id="os-produtos-selecionados" class="space-y-2" aria-label="Produtos incluídos na ordem"></ul>
+        </section>
+        <section id="os-personalizar-mensagem-painel" class="hidden space-y-2">
+          <label class="block text-sm">Mensagem personalizada para o cliente
+            <textarea id="os-mensagem-cliente" rows="4" maxlength="1000" placeholder="Escreva uma observação, prazo ou condição especial para enviar pelo WhatsApp." class="input mt-1"></textarea>
+          </label>
+          <p class="text-xs text-slate-500">A mensagem será aberta no WhatsApp para você revisar e enviar manualmente.</p>
+        </section>
+        <p id="os-status" class="text-sm" role="status" aria-live="polite"></p>
         <fieldset class="border border-slate-200 dark:border-slate-600 rounded-lg p-3">
           <legend class="text-xs uppercase text-slate-500 px-1">Insumos consumidos (descontados ao iniciar a produção)</legend>
           <div id="os-insumos-multiplo" class="grid gap-1.5 sm:grid-cols-2 py-1"></div>
@@ -166,7 +193,6 @@
             <h3 id="orcamento-produto-heading" class="text-lg font-semibold">Personalizar orçamento</h3>
             <p class="text-sm text-slate-400">Revise os detalhes e a mensagem antes de criar a OS e abrir o WhatsApp.</p>
           </div>
-          <input id="orcamento-produto-id" type="hidden">
           <div class="grid gap-3 sm:grid-cols-2">
             <label class="text-sm sm:col-span-2">Produto/descrição
               <input id="orcamento-produto-titulo" required maxlength="160" class="input mt-1">
@@ -184,10 +210,32 @@
               <input id="orcamento-produto-sinal" required type="number" min="0" step="0.01" value="0" class="input mt-1">
             </label>
           </div>
+          <div class="flex flex-wrap gap-2">
+            <button id="btn-adicionar-produtos" type="button" aria-expanded="false" aria-controls="adicionar-produtos-painel" class="rounded-lg bg-sky-700 hover:bg-sky-600 px-3 py-2 text-sm">Adicionar produtos</button>
+            <button id="btn-personalizar-mensagem" type="button" aria-expanded="false" aria-controls="personalizar-mensagem-painel" class="rounded-lg bg-violet-700 hover:bg-violet-600 px-3 py-2 text-sm">Personalizar mensagem para cliente</button>
+          </div>
+          <section id="adicionar-produtos-painel" class="hidden space-y-3 rounded-lg border border-slate-700 p-3" aria-label="Adicionar produtos ao orçamento">
+            <h4 class="text-sm font-semibold">Adicionar outro produto do catálogo</h4>
+            <div class="grid gap-3 sm:grid-cols-3">
+              <label class="text-sm sm:col-span-3">Produto
+                <select id="adicionar-produto-selecao" class="input mt-1"></select>
+              </label>
+              <label class="text-sm">Quantidade
+                <input id="adicionar-produto-quantidade" type="number" min="1" step="1" value="1" class="input mt-1">
+              </label>
+              <label class="text-sm sm:col-span-2">Preço unitário (R$)
+                <input id="adicionar-produto-preco" type="number" min="0" step="0.01" class="input mt-1">
+              </label>
+            </div>
+            <button id="btn-confirmar-adicao-produto" type="button" class="rounded-lg bg-sky-700 hover:bg-sky-600 px-3 py-2 text-sm">Incluir no orçamento</button>
+          </section>
+          <ul id="orcamento-produto-itens" class="space-y-2" aria-label="Produtos deste orçamento"></ul>
           <p id="orcamento-produto-total" class="rounded-lg bg-slate-800 p-3 text-sm" aria-live="polite"></p>
-          <label class="block text-sm">Mensagem adicional / personalização para o cliente
-            <textarea id="orcamento-produto-mensagem" rows="4" maxlength="1000" placeholder="Ex.: prazo de produção, opção de acabamento ou condição especial" class="input mt-1"></textarea>
-          </label>
+          <section id="personalizar-mensagem-painel" class="hidden">
+            <label class="block text-sm">Mensagem adicional para o cliente
+              <textarea id="orcamento-produto-mensagem" rows="4" maxlength="1000" placeholder="Ex.: prazo de produção, opção de acabamento ou condição especial" class="input mt-1"></textarea>
+            </label>
+          </section>
           <div class="rounded-lg border border-slate-700 p-3">
             <p class="mb-2 text-xs font-semibold uppercase text-slate-400">Prévia da mensagem do WhatsApp</p>
             <pre id="orcamento-produto-preview" class="whitespace-pre-wrap break-words text-sm text-slate-300"></pre>

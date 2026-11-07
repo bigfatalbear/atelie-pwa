@@ -33,7 +33,8 @@ let emailConfirmacaoPendente = null;
 let cooldownReenvioAte = 0;
 let timerCooldownReenvio = null;
 let logoSelecionada = null;
-let orcamentoComposicaoPendente = [];
+let orcamentoProdutosPendentes = [];
+let osProdutosSelecionados = [];
 
 // ============================================================
 // INICIALIZAÇÃO
@@ -58,6 +59,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   $('#form-insumo')?.addEventListener('submit', aoCadastrarInsumo);
   $('#form-os')?.addEventListener('submit', aoCadastrarOS);
+  $('#btn-os-adicionar-produtos')?.addEventListener('click', alternarPainelProdutosOS);
+  $('#btn-os-personalizar-mensagem')?.addEventListener('click', alternarPainelMensagemOS);
+  $('#os-produto-selecao')?.addEventListener('change', preencherPrecoProdutoOS);
+  $('#btn-os-confirmar-produto')?.addEventListener('click', adicionarProdutoOS);
+  $('#os-produtos-selecionados')?.addEventListener('click', removerProdutoOS);
   $('#form-cliente')?.addEventListener('submit', aoSalvarCliente);
   $('#cliente-cancelar')?.addEventListener('click', cancelarEdicaoCliente);
   $('#form-identidade')?.addEventListener('submit', salvarIdentidadeVisual);
@@ -71,6 +77,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('#lista-produtos')?.addEventListener('click', aoAcionarProduto);
   $('#form-orcamento-produto')?.addEventListener('submit', salvarOrcamentoProduto);
   $('#orcamento-produto-fechar')?.addEventListener('click', fecharEditorOrcamento);
+  $('#btn-adicionar-produtos')?.addEventListener('click', alternarPainelAdicionarProdutos);
+  $('#btn-confirmar-adicao-produto')?.addEventListener('click', adicionarProdutoAoOrcamento);
+  $('#adicionar-produto-selecao')?.addEventListener('change', preencherPrecoProdutoAdicional);
+  $('#orcamento-produto-itens')?.addEventListener('click', removerProdutoDoOrcamento);
+  $('#btn-personalizar-mensagem')?.addEventListener('click', alternarPersonalizacaoMensagem);
   ['#orcamento-produto-quantidade', '#orcamento-produto-preco', '#orcamento-produto-sinal'].forEach((selector) => {
     $(selector)?.addEventListener('input', atualizarPreviewOrcamentoProduto);
   });
@@ -535,6 +546,135 @@ async function renderSelectInsumos() {
     </label>`).join('');
 }
 
+async function renderSelectProdutosOS() {
+  const select = $('#os-produto-selecao');
+  if (!select) return;
+  const [produtos, fichas] = await Promise.all([
+    db.produtos.toArray(),
+    db.fichas_tecnicas.toArray(),
+  ]);
+  const comFicha = new Set(fichas.map((ficha) => Number(ficha.produto_id)));
+  produtos.sort((a, b) => String(a.nome ?? '').localeCompare(String(b.nome ?? ''), 'pt-BR'));
+  select.innerHTML = '<option value="">Selecione um produto cadastrado</option>' +
+    produtos.filter((produto) => comFicha.has(Number(produto.id)))
+      .map((produto) => `<option value="${produto.id}">${escaparHtml(produto.nome)} — ${brl(produto.preco_base || 0)}</option>`)
+      .join('');
+}
+
+function alternarPainelProdutosOS() {
+  const painel = $('#os-adicionar-produtos-painel');
+  const abrir = painel.classList.contains('hidden');
+  painel.classList.toggle('hidden', !abrir);
+  $('#btn-os-adicionar-produtos').setAttribute('aria-expanded', String(abrir));
+  if (abrir) $('#os-produto-selecao').focus();
+}
+
+function alternarPainelMensagemOS() {
+  const painel = $('#os-personalizar-mensagem-painel');
+  const abrir = painel.classList.contains('hidden');
+  painel.classList.toggle('hidden', !abrir);
+  $('#btn-os-personalizar-mensagem').setAttribute('aria-expanded', String(abrir));
+  if (abrir) $('#os-mensagem-cliente').focus();
+}
+
+async function preencherPrecoProdutoOS() {
+  const produtoId = Number($('#os-produto-selecao').value);
+  if (!produtoId) {
+    $('#os-produto-preco').value = '';
+    return;
+  }
+  try {
+    const ficha = await db.fichas_tecnicas.where('produto_id').equals(produtoId).first();
+    if (!ficha) throw new Error('Este produto não possui ficha técnica.');
+    const { calculo } = await calcularCustoFicha({
+      itens: lerComposicaoFicha(ficha),
+      insumos: await db.insumos.toArray(),
+      tempoMinutos: Number(ficha.tempo_minutos) || 0,
+      valorHora: Number(ficha.valor_hora) || 0,
+      taxaPagamento: Number(ficha.taxa_pagamento) || 0,
+      margemLucro: Number(ficha.margem_lucro) || 0,
+    });
+    $('#os-produto-preco').value = calculo.precoVenda.toFixed(2);
+  } catch (error) {
+    definirStatusOS(error.message || 'Não foi possível calcular o preço do produto.', true);
+  }
+}
+
+async function adicionarProdutoOS() {
+  const button = $('#btn-os-confirmar-produto');
+  button.disabled = true;
+  try {
+    const produtoId = Number($('#os-produto-selecao').value);
+    const quantidade = Number($('#os-produto-quantidade').value);
+    const precoUnitario = Number($('#os-produto-preco').value);
+    if (!produtoId) throw new Error('Selecione um produto do catálogo.');
+    if (!Number.isInteger(quantidade) || quantidade < 1) throw new Error('A quantidade deve ser um inteiro maior que zero.');
+    if (!Number.isFinite(precoUnitario) || precoUnitario < 0) throw new Error('Informe um preço unitário válido.');
+
+    const [produto, ficha, insumos] = await Promise.all([
+      db.produtos.get(produtoId),
+      db.fichas_tecnicas.where('produto_id').equals(produtoId).first(),
+      db.insumos.toArray(),
+    ]);
+    if (!produto || !ficha) throw new Error('O produto ou a ficha técnica não está mais disponível.');
+    const { composicao } = await calcularCustoFicha({
+      itens: lerComposicaoFicha(ficha),
+      insumos,
+      tempoMinutos: Number(ficha.tempo_minutos) || 0,
+      valorHora: Number(ficha.valor_hora) || 0,
+      taxaPagamento: Number(ficha.taxa_pagamento) || 0,
+      margemLucro: Number(ficha.margem_lucro) || 0,
+    });
+    osProdutosSelecionados.push({ produtoId, titulo: produto.nome, quantidade, precoUnitario, composicao });
+    const valorProdutos = osProdutosSelecionados.reduce((soma, item) =>
+      soma + item.quantidade * item.precoUnitario, 0);
+    $('#os-valor').value = (Math.round(valorProdutos * 100) / 100).toFixed(2);
+    if (!$('#os-titulo').value.trim()) {
+      $('#os-titulo').value = osProdutosSelecionados
+        .map((item) => `${item.quantidade} × ${item.titulo}`).join(' + ');
+    }
+    renderProdutosSelecionadosOS();
+    $('#os-produto-selecao').value = '';
+    $('#os-produto-quantidade').value = '1';
+    $('#os-produto-preco').value = '';
+    definirStatusOS('');
+  } catch (error) {
+    definirStatusOS(error.message || 'Não foi possível adicionar o produto.', true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function renderProdutosSelecionadosOS() {
+  const lista = $('#os-produtos-selecionados');
+  if (!lista) return;
+  lista.innerHTML = osProdutosSelecionados.map((item, index) => `
+    <li class="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-800 px-3 py-2 text-sm">
+      <span>${escaparHtml(item.titulo)} · ${item.quantidade} × ${brl(item.precoUnitario)} = ${brl(item.quantidade * item.precoUnitario)}</span>
+      <button type="button" data-remover-produto-os="${index}" aria-label="Remover ${escaparHtml(item.titulo)}" class="rounded bg-red-900 px-2 py-1 text-xs text-white">Remover</button>
+    </li>`).join('');
+}
+
+function removerProdutoOS(event) {
+  const button = event.target.closest('[data-remover-produto-os]');
+  if (!button) return;
+  osProdutosSelecionados.splice(Number(button.dataset.removerProdutoOs), 1);
+  const valorProdutos = osProdutosSelecionados.reduce((soma, item) =>
+    soma + item.quantidade * item.precoUnitario, 0);
+  $('#os-valor').value = osProdutosSelecionados.length
+    ? (Math.round(valorProdutos * 100) / 100).toFixed(2)
+    : '';
+  renderProdutosSelecionadosOS();
+}
+
+function definirStatusOS(mensagem, erro = false) {
+  const status = $('#os-status');
+  if (!status) return;
+  status.textContent = mensagem;
+  status.classList.toggle('text-red-500', erro);
+  status.classList.toggle('text-emerald-500', !erro);
+}
+
 // ============================================================
 // CATÁLOGO DE PRODUTOS E FICHAS TÉCNICAS
 // ============================================================
@@ -578,7 +718,6 @@ async function renderCatalogo() {
           taxaPagamento: Number(ficha.taxa_pagamento) || 0,
           margemLucro: Number(ficha.margem_lucro) || 0,
         });
-        orcamentoComposicaoPendente = composicao;
         composicao = resultado.composicao;
         calculo = resultado.calculo;
       }
@@ -630,6 +769,7 @@ async function renderCatalogo() {
   lista.querySelectorAll('[data-excluir-produto]').forEach((button) => {
     button.addEventListener('click', () => excluirProduto(Number(button.dataset.excluirProduto)));
   });
+  await renderSelectProdutosOS();
 }
 
 function renderOpcoesInsumosProduto(insumos, selecionados = new Map()) {
@@ -823,11 +963,17 @@ async function aoAcionarProduto(event) {
       taxaPagamento: Number(ficha.taxa_pagamento) || 0,
       margemLucro: Number(ficha.margem_lucro) || 0,
     });
+    orcamentoProdutosPendentes = [{
+      produtoId: produto.id,
+      titulo: produto.nome,
+      quantidade: Number(document.querySelector(`[data-produto-quantidade-orcamento="${id}"]`)?.value) || 1,
+      precoUnitario: calculo.precoVenda,
+      composicao,
+    }];
     const clienteSelecionado = $('#produto-cliente').value;
     const clienteSelect = $('#orcamento-produto-cliente');
     clienteSelect.innerHTML = $('#produto-cliente').innerHTML;
     clienteSelect.value = clienteSelecionado;
-    $('#orcamento-produto-id').value = id;
     $('#orcamento-produto-titulo').value = produto.nome;
     $('#orcamento-produto-quantidade').value =
       document.querySelector(`[data-produto-quantidade-orcamento="${id}"]`)?.value || '1';
@@ -835,6 +981,12 @@ async function aoAcionarProduto(event) {
     $('#orcamento-produto-sinal').value = '0';
     $('#orcamento-produto-mensagem').value = '';
     $('#orcamento-produto-status').textContent = '';
+    $('#adicionar-produtos-painel').classList.add('hidden');
+    $('#personalizar-mensagem-painel').classList.add('hidden');
+    $('#btn-personalizar-mensagem').setAttribute('aria-expanded', 'false');
+    $('#btn-adicionar-produtos').setAttribute('aria-expanded', 'false');
+    await carregarOpcoesProdutosAdicionais();
+    renderItensDoOrcamento();
     await atualizarPreviewOrcamentoProduto();
     $('#dialog-orcamento-produto').showModal();
     $('#orcamento-produto-titulo').focus();
@@ -843,6 +995,134 @@ async function aoAcionarProduto(event) {
   } finally {
     button.disabled = false;
   }
+}
+
+async function carregarOpcoesProdutosAdicionais() {
+  const [produtos, fichas] = await Promise.all([
+    db.produtos.toArray(),
+    db.fichas_tecnicas.toArray(),
+  ]);
+  const idsComFicha = new Set(fichas.map((ficha) => Number(ficha.produto_id)));
+  const disponiveis = produtos.filter((produto) => idsComFicha.has(Number(produto.id)));
+  $('#adicionar-produto-selecao').innerHTML = '<option value="">Selecione um produto</option>' +
+    disponiveis.map((produto) =>
+      `<option value="${produto.id}">${escaparHtml(produto.nome)}</option>`).join('');
+  $('#adicionar-produto-preco').value = '';
+}
+
+function alternarPainelAdicionarProdutos() {
+  const painel = $('#adicionar-produtos-painel');
+  const abrir = painel.classList.contains('hidden');
+  painel.classList.toggle('hidden', !abrir);
+  $('#btn-adicionar-produtos').setAttribute('aria-expanded', String(abrir));
+  if (abrir) $('#adicionar-produto-selecao').focus();
+}
+
+function alternarPersonalizacaoMensagem() {
+  const painel = $('#personalizar-mensagem-painel');
+  const abrir = painel.classList.contains('hidden');
+  painel.classList.toggle('hidden', !abrir);
+  $('#btn-personalizar-mensagem').setAttribute('aria-expanded', String(abrir));
+  if (abrir) $('#orcamento-produto-mensagem').focus();
+  atualizarPreviewOrcamentoProduto();
+}
+
+async function preencherPrecoProdutoAdicional() {
+  const id = Number($('#adicionar-produto-selecao').value);
+  if (!id) {
+    $('#adicionar-produto-preco').value = '';
+    return;
+  }
+  try {
+    const ficha = await db.fichas_tecnicas.where('produto_id').equals(id).first();
+    if (!ficha) throw new Error('Este produto não possui ficha técnica.');
+    const { calculo } = await calcularCustoFicha({
+      itens: lerComposicaoFicha(ficha),
+      insumos: await db.insumos.toArray(),
+      tempoMinutos: Number(ficha.tempo_minutos) || 0,
+      valorHora: Number(ficha.valor_hora) || 0,
+      taxaPagamento: Number(ficha.taxa_pagamento) || 0,
+      margemLucro: Number(ficha.margem_lucro) || 0,
+    });
+    $('#adicionar-produto-preco').value = calculo.precoVenda.toFixed(2);
+  } catch (error) {
+    $('#orcamento-produto-status').textContent = error.message || 'Não foi possível calcular este produto.';
+  }
+}
+
+async function adicionarProdutoAoOrcamento() {
+  const button = $('#btn-confirmar-adicao-produto');
+  button.disabled = true;
+  try {
+    const produtoId = Number($('#adicionar-produto-selecao').value);
+    const quantidade = Number($('#adicionar-produto-quantidade').value);
+    const precoUnitario = Number($('#adicionar-produto-preco').value);
+    if (!produtoId) throw new Error('Selecione um produto do catálogo.');
+    if (!Number.isInteger(quantidade) || quantidade < 1) throw new Error('A quantidade deve ser um inteiro maior que zero.');
+    if (!Number.isFinite(precoUnitario) || precoUnitario < 0) throw new Error('Informe um preço unitário válido.');
+
+    const [produto, ficha, insumos] = await Promise.all([
+      db.produtos.get(produtoId),
+      db.fichas_tecnicas.where('produto_id').equals(produtoId).first(),
+      db.insumos.toArray(),
+    ]);
+    if (!produto || !ficha) throw new Error('O produto ou a ficha técnica não está mais disponível.');
+    const { composicao } = await calcularCustoFicha({
+      itens: lerComposicaoFicha(ficha),
+      insumos,
+      tempoMinutos: Number(ficha.tempo_minutos) || 0,
+      valorHora: Number(ficha.valor_hora) || 0,
+      taxaPagamento: Number(ficha.taxa_pagamento) || 0,
+      margemLucro: Number(ficha.margem_lucro) || 0,
+    });
+    orcamentoProdutosPendentes.push({
+      produtoId,
+      titulo: produto.nome,
+      quantidade,
+      precoUnitario,
+      composicao,
+    });
+    $('#adicionar-produto-selecao').value = '';
+    $('#adicionar-produto-quantidade').value = '1';
+    $('#adicionar-produto-preco').value = '';
+    $('#orcamento-produto-status').textContent = '';
+    $('#adicionar-produtos-painel').classList.add('hidden');
+    $('#btn-adicionar-produtos').setAttribute('aria-expanded', 'false');
+    renderItensDoOrcamento();
+    await atualizarPreviewOrcamentoProduto();
+  } catch (error) {
+    $('#orcamento-produto-status').textContent = error.message || 'Não foi possível adicionar o produto.';
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function linhasOrcamentoAtuais() {
+  if (!orcamentoProdutosPendentes.length) return [];
+  const linhas = [...orcamentoProdutosPendentes];
+  linhas[0] = {
+    ...linhas[0],
+    titulo: $('#orcamento-produto-titulo').value.trim(),
+    quantidade: Number($('#orcamento-produto-quantidade').value),
+    precoUnitario: Number($('#orcamento-produto-preco').value),
+  };
+  return linhas;
+}
+
+function renderItensDoOrcamento() {
+  $('#orcamento-produto-itens').innerHTML = linhasOrcamentoAtuais().map((produto, index) => `
+    <li class="flex items-center justify-between gap-2 rounded-lg bg-slate-800 px-3 py-2 text-sm">
+      <span>${escaparHtml(produto.titulo)} · ${produto.quantidade} × ${brl(produto.precoUnitario)} = ${brl(produto.quantidade * produto.precoUnitario)}</span>
+      ${index ? `<button type="button" data-remover-item-orcamento="${index}" aria-label="Remover ${escaparHtml(produto.titulo)}" class="rounded bg-red-900 px-2 py-1 text-xs">Remover</button>` : '<span class="text-xs text-slate-400">Produto principal</span>'}
+    </li>`).join('');
+}
+
+async function removerProdutoDoOrcamento(event) {
+  const button = event.target.closest('[data-remover-item-orcamento]');
+  if (!button) return;
+  orcamentoProdutosPendentes.splice(Number(button.dataset.removerItemOrcamento), 1);
+  renderItensDoOrcamento();
+  await atualizarPreviewOrcamentoProduto();
 }
 
 function fecharEditorOrcamento() {
@@ -854,25 +1134,27 @@ function valorNumericoOrcamento(id) {
 }
 
 async function atualizarTotalOrcamentoProduto() {
-  const quantidade = valorNumericoOrcamento('orcamento-produto-quantidade');
-  const preco = valorNumericoOrcamento('orcamento-produto-preco');
+  const linhas = linhasOrcamentoAtuais();
   const sinal = valorNumericoOrcamento('orcamento-produto-sinal');
-  const total = quantidade * preco;
+  const valoresValidos = linhas.length > 0 && linhas.every((linha) =>
+    linha.titulo && Number.isInteger(linha.quantidade) && linha.quantidade >= 1
+      && Number.isFinite(linha.precoUnitario) && linha.precoUnitario >= 0);
+  const total = linhas.reduce((soma, linha) => soma + linha.quantidade * linha.precoUnitario, 0);
   const saldo = total - sinal;
   const preview = $('#orcamento-produto-total');
 
-  if (!Number.isInteger(quantidade) || quantidade < 1 || !Number.isFinite(preco) || preco < 0
-    || !Number.isFinite(sinal) || sinal < 0 || sinal > total) {
-    preview.textContent = 'Informe quantidade e preço válidos. O sinal deve estar entre zero e o total.';
+  if (!valoresValidos || !Number.isFinite(sinal) || sinal < 0 || sinal > total) {
+    preview.textContent = 'Revise os produtos, quantidades e preços. O sinal deve estar entre zero e o total.';
     preview.classList.add('text-amber-400');
     return false;
   }
   preview.classList.remove('text-amber-400');
-  preview.textContent = `Total: ${brl(total)} · Sinal: ${brl(sinal)} · Saldo: ${brl(saldo)}`;
+  preview.textContent = `${linhas.length} produto(s) · Total: ${brl(total)} · Sinal: ${brl(sinal)} · Saldo: ${brl(saldo)}`;
   return true;
 }
 
 async function atualizarPreviewOrcamentoProduto() {
+  renderItensDoOrcamento();
   const valido = await atualizarTotalOrcamentoProduto();
   const preview = $('#orcamento-produto-preview');
   if (!valido) {
@@ -887,10 +1169,7 @@ async function atualizarPreviewOrcamentoProduto() {
 
   try {
     const rascunho = criarRascunhoOrcamento({
-      titulo: $('#orcamento-produto-titulo').value,
-      composicao: orcamentoComposicaoPendente,
-      quantidade: valorNumericoOrcamento('orcamento-produto-quantidade'),
-      precoUnitario: valorNumericoOrcamento('orcamento-produto-preco'),
+      produtos: linhasOrcamentoAtuais(),
       sinal: valorNumericoOrcamento('orcamento-produto-sinal'),
     });
     preview.textContent = montarMensagemOrcamento({
@@ -918,35 +1197,34 @@ async function salvarOrcamentoProduto(event) {
       throw new Error('Revise quantidade, preço e sinal antes de continuar.');
     }
 
-    const id = Number($('#orcamento-produto-id').value);
-    const produto = await db.produtos.get(id);
-    const ficha = await db.fichas_tecnicas.where('produto_id').equals(id).first();
     const clienteId = Number($('#orcamento-produto-cliente').value);
     const cliente = await db.clientes.get(clienteId);
-    if (!produto || !ficha) throw new Error('Produto ou ficha técnica não encontrado.');
     if (!cliente) throw new Error('Selecione um cliente cadastrado para criar o orçamento.');
     const link = criarLinkWhatsapp(cliente.telefone);
 
-    const quantidade = valorNumericoOrcamento('orcamento-produto-quantidade');
-    const precoUnitario = valorNumericoOrcamento('orcamento-produto-preco');
     const sinal = valorNumericoOrcamento('orcamento-produto-sinal');
-    const titulo = $('#orcamento-produto-titulo').value.trim();
     const observacao = $('#orcamento-produto-mensagem').value.trim();
-    if (!titulo) throw new Error('Informe o nome ou descrição que será exibido no orçamento.');
-
-    const { composicao } = await calcularCustoFicha({
-      itens: lerComposicaoFicha(ficha),
-      insumos: await db.insumos.toArray(),
-      tempoMinutos: Number(ficha.tempo_minutos) || 0,
-      valorHora: Number(ficha.valor_hora) || 0,
-      taxaPagamento: Number(ficha.taxa_pagamento) || 0,
-      margemLucro: Number(ficha.margem_lucro) || 0,
-    });
+    const insumosEstoque = await db.insumos.toArray();
+    const linhas = [];
+    for (const linha of linhasOrcamentoAtuais()) {
+      const [produto, ficha] = await Promise.all([
+        db.produtos.get(linha.produtoId),
+        db.fichas_tecnicas.where('produto_id').equals(linha.produtoId).first(),
+      ]);
+      if (!produto || !ficha) throw new Error(`O produto "${linha.titulo}" ou sua ficha técnica não está mais disponível.`);
+      const { composicao } = await calcularCustoFicha({
+        itens: lerComposicaoFicha(ficha),
+        insumos: insumosEstoque,
+        tempoMinutos: Number(ficha.tempo_minutos) || 0,
+        valorHora: Number(ficha.valor_hora) || 0,
+        taxaPagamento: Number(ficha.taxa_pagamento) || 0,
+        margemLucro: Number(ficha.margem_lucro) || 0,
+      });
+      linhas.push({ ...linha, composicao });
+    }
     const rascunho = criarRascunhoOrcamento({
-      titulo,
-      composicao,
-      quantidade,
-      precoUnitario,
+      produtos: linhas,
+      titulo: linhas.map((linha) => `${linha.quantidade} × ${linha.titulo}`).join(' + '),
       sinal,
     });
     const mensagem = montarMensagemOrcamento({
@@ -960,7 +1238,7 @@ async function salvarOrcamentoProduto(event) {
     const osId = await novaOS({
       titulo: rascunho.titulo,
       cliente_id: clienteId,
-      produto_id: produto.id,
+      produto_id: linhas[0].produtoId,
       itens: rascunho.itens,
       valor_total: rascunho.valor_total,
       sinal: rascunho.sinal,
@@ -1045,20 +1323,96 @@ async function aoCadastrarOS(e) {
   const titulo = $('#os-titulo').value.trim();
   if (!titulo) return;
 
-  const valor_total = parseFloat($('#calc-resultado').dataset.valor || '0') || parseFloat($('#os-valor').value) || 0;
-  const sinal = parseFloat($('#os-sinal').value) || 0;
+  const personalizarMensagem = !$('#os-personalizar-mensagem-painel').classList.contains('hidden');
+  let novaAba = personalizarMensagem ? window.open('about:blank', '_blank') : null;
+  let popupBloqueado = false;
+  try {
+    const sinal = parseFloat($('#os-sinal').value) || 0;
+    const itensManuais = [...document.querySelectorAll('#os-insumos-multiplo input:checked')].map((checkbox) => ({
+      insumo_id: Number(checkbox.value),
+      quantidade: parseFloat(checkbox.closest('label')?.querySelector('input[type=number]')?.value) || 1,
+    })).filter((item) => item.insumo_id);
+    const rascunhoProdutos = osProdutosSelecionados.length
+      ? criarRascunhoOrcamento({ produtos: osProdutosSelecionados, sinal: 0 })
+      : null;
+    const valorDigitado = $('#os-valor').value.trim();
+    const valorCalculado = parseFloat($('#calc-resultado').dataset.valor || '') || 0;
+    const valor_total = valorDigitado
+      ? Number(valorDigitado)
+      : valorCalculado || rascunhoProdutos?.valor_total || 0;
+    if (!Number.isFinite(valor_total) || valor_total < 0) throw new Error('Informe um valor total válido.');
+    if (!Number.isFinite(sinal) || sinal < 0 || sinal > valor_total) {
+      throw new Error('O sinal deve estar entre zero e o valor total da OS.');
+    }
 
-  const itens = [...document.querySelectorAll('#os-insumos-multiplo input:checked')].map((cb) => ({
-    insumo_id: Number(cb.value),
-    quantidade: parseFloat(cb.closest('label')?.querySelector('input[type=number]')?.value) || 1,
-  }));
+    const quantidades = new Map();
+    for (const item of [...(rascunhoProdutos?.itens || []), ...itensManuais]) {
+      quantidades.set(item.insumo_id, (quantidades.get(item.insumo_id) || 0) + item.quantidade);
+    }
+    const itens = [...quantidades].map(([insumo_id, quantidade]) => ({ insumo_id, quantidade }));
+    const detalhes = rascunhoProdutos?.detalhes || [];
+    if (rascunhoProdutos && valor_total !== rascunhoProdutos.valor_total) {
+      const ajuste = Math.round((valor_total - rascunhoProdutos.valor_total) * 100) / 100;
+      detalhes.push({
+        nome: 'Ajuste no valor do orçamento',
+        quantidade: 1,
+        precoUnitario: ajuste,
+        subtotal: ajuste,
+        insumos: [],
+      });
+    }
 
-  const cliente_id = $('#os-cliente').value ? Number($('#os-cliente').value) : null;
-  await novaOS({ titulo, cliente_id, itens: itens.filter((it) => it.insumo_id), valor_total, sinal });
-  e.target.reset();
-  $('#calc-resultado').innerHTML = '';
-  $('#calc-resultado').dataset.valor = '';
-  alert('✅ OS criada na coluna "Orçamento". Os insumos serão descontados ao mover para "Em Produção".');
+    const cliente_id = $('#os-cliente').value ? Number($('#os-cliente').value) : null;
+    const mensagemAdicional = personalizarMensagem ? $('#os-mensagem-cliente').value.trim() : '';
+    let urlWhatsapp = '';
+    if (personalizarMensagem) {
+      const cliente = cliente_id ? await db.clientes.get(cliente_id) : null;
+      if (!cliente) throw new Error('Selecione um cliente para personalizar e abrir a mensagem no WhatsApp.');
+      const link = criarLinkWhatsapp(cliente.telefone);
+      const mensagem = montarMensagemOrcamento({
+        cliente: cliente.nome,
+        titulo,
+        valorTotal: valor_total,
+        sinal,
+        detalhes,
+        observacao: mensagemAdicional,
+      });
+      urlWhatsapp = `${link}?text=${encodeURIComponent(mensagem)}`;
+    }
+
+    await novaOS({
+      titulo,
+      cliente_id,
+      produto_id: osProdutosSelecionados[0]?.produtoId,
+      itens,
+      valor_total,
+      sinal,
+      orcamento_detalhes: detalhes.length ? detalhes : undefined,
+      mensagem_adicional: mensagemAdicional || undefined,
+    });
+    if (urlWhatsapp && novaAba) {
+      novaAba.opener = null;
+      novaAba.location.href = urlWhatsapp;
+    } else if (urlWhatsapp) {
+      popupBloqueado = true;
+      definirStatusOS('OS criada. O navegador bloqueou a nova aba; abra o cartão da OS e selecione “Revisar no WhatsApp”.', true);
+    }
+
+    e.target.reset();
+    osProdutosSelecionados = [];
+    renderProdutosSelecionadosOS();
+    $('#os-adicionar-produtos-painel').classList.add('hidden');
+    $('#os-personalizar-mensagem-painel').classList.add('hidden');
+    $('#btn-os-adicionar-produtos').setAttribute('aria-expanded', 'false');
+    $('#btn-os-personalizar-mensagem').setAttribute('aria-expanded', 'false');
+    $('#calc-resultado').innerHTML = '';
+    $('#calc-resultado').dataset.valor = '';
+    if (!urlWhatsapp) alert('✅ OS criada na coluna "Orçamento". Os insumos serão descontados ao mover para "Em Produção".');
+    else if (!popupBloqueado) definirStatusOS('OS criada. Revise a mensagem aberta no WhatsApp e envie manualmente.');
+  } catch (error) {
+    if (novaAba) novaAba.close();
+    definirStatusOS(error.message || 'Não foi possível criar a OS.', true);
+  }
 }
 
 // ============================================================

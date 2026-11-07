@@ -80,3 +80,38 @@ test('rejeita orçamento com sinal acima do preço ajustado pelo usuário', () =
     sinal: 51,
   }), /sinal não pode ser maior/);
 });
+
+test('combina múltiplos produtos e soma quantidades do mesmo insumo', () => {
+  const rascunho = criarRascunhoOrcamento({
+    produtos: [
+      {
+        produtoId: 1,
+        titulo: 'Caderno',
+        quantidade: 2,
+        precoUnitario: 25.5,
+        composicao: [{ insumo_id: 1, nome: 'Papel', unidade: 'folhas', quantidade: 3 }],
+      },
+      {
+        produtoId: 2,
+        titulo: 'Álbum',
+        quantidade: 1,
+        precoUnitario: 80,
+        composicao: [
+          { insumo_id: 1, nome: 'Papel', unidade: 'folhas', quantidade: 2 },
+          { insumo_id: 2, nome: 'Tecido', unidade: 'm', quantidade: 0.5 },
+        ],
+      },
+    ],
+    sinal: 20,
+  });
+
+  assert.equal(rascunho.titulo, 'Orçamento: 2 × Caderno + 1 × Álbum');
+  assert.equal(rascunho.valor_total, 131);
+  assert.equal(rascunho.saldo, 111);
+  assert.deepEqual(rascunho.itens, [
+    { insumo_id: 1, quantidade: 8 },
+    { insumo_id: 2, quantidade: 0.5 },
+  ]);
+  assert.equal(rascunho.detalhes.length, 2);
+  assert.deepEqual(rascunho.detalhes.map((item) => item.produto_id), [1, 2]);
+});
