@@ -74,7 +74,11 @@ function exigirCliente() {
 
 export async function cadastrarConta(email, password) {
   const supabase = exigirCliente();
-  const { data, error } = await supabase.auth.signUp({ email: email.trim(), password });
+  const { data, error } = await supabase.auth.signUp({
+    email: email.trim(),
+    password,
+    options: { emailRedirectTo: `${window.location.origin}${window.location.pathname}` },
+  });
   if (error) throw error;
   currentUser = data.session?.user || null;
   return { user: currentUser, confirmationRequired: !data.session };
