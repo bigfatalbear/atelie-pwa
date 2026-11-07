@@ -1,7 +1,7 @@
 /**
  * app.js — Inicialização, navegação e interfaces (Insumos, Precificação, Nova OS)
  */
-import { db, salvar } from './db.js';
+import { db, remover, salvar } from './db.js';
 import {
   cadastrarConta,
   entrarConta,
@@ -12,12 +12,27 @@ import {
 } from './supabase-sync.js';
 import { calcularPrecoVenda, brl } from './precificacao.js';
 import { renderKanban, novaOS, COLUNAS } from './kanban.js';
+import { criarLinkWhatsapp, normalizarTelefoneWhatsapp } from './whatsapp.mjs';
+import { calcularCustoFicha, criarItensOS, lerComposicaoFicha } from './catalogo.mjs';
 
 const $ = (sel) => document.querySelector(sel);
+const CHAVE_IDENTIDADE = 'atelie-identidade-visual';
+const NOME_PADRAO = 'Ateliê Manager';
+const LOGO_PADRAO = 'icons/icon-192.jpg';
+const MAX_LOGO_BYTES = 5 * 1024 * 1024;
+const MAX_LOGO_DATA_URL_LENGTH = 400_000;
+const escaparHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+})[char]);
 let supabaseAcaoEmAndamento = false;
 let emailConfirmacaoPendente = null;
 let cooldownReenvioAte = 0;
 let timerCooldownReenvio = null;
+let logoSelecionada = null;
 
 // ============================================================
 // INICIALIZAÇÃO
@@ -29,6 +44,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
 
 document.addEventListener('DOMContentLoaded', async () => {
   configurarTabs();
+  configurarIdentidadeVisual();
   await configurarSupabaseUI();
   window.addEventListener('render-financeiro', renderFinanceiro);
   renderFinanceiro();
@@ -37,10 +53,21 @@ document.addEventListener('DOMContentLoaded', async () => {
   await renderCalcInsumos();
   await renderSelectInsumos();
   await renderClientes();
+  await renderCatalogo();
 
   $('#form-insumo')?.addEventListener('submit', aoCadastrarInsumo);
   $('#form-os')?.addEventListener('submit', aoCadastrarOS);
+  $('#form-cliente')?.addEventListener('submit', aoSalvarCliente);
+  $('#cliente-cancelar')?.addEventListener('click', cancelarEdicaoCliente);
+  $('#form-identidade')?.addEventListener('submit', salvarIdentidadeVisual);
+  $('#identidade-logo-arquivo')?.addEventListener('change', selecionarLogoVisual);
+  $('#identidade-logo-remover')?.addEventListener('click', restaurarLogoVisual);
   $('#form-calc')?.addEventListener('input', calcularPreview);
+  $('#form-produto')?.addEventListener('submit', aoSalvarProduto);
+  $('#form-produto')?.addEventListener('input', atualizarPreviewProduto);
+  $('#form-produto')?.addEventListener('change', atualizarPreviewProduto);
+  $('#produto-cancelar')?.addEventListener('click', cancelarEdicaoProduto);
+  $('#lista-produtos')?.addEventListener('click', aoAcionarProduto);
   // Selo online/offline
   atualizarSelo();
   window.addEventListener('online', atualizarSelo);
@@ -53,6 +80,171 @@ function atualizarSelo() {
   const on = navigator.onLine;
   selo.textContent = on ? '🟢 Online' : '🔴 Offline';
   selo.title = on ? 'Conexão com a internet disponível' : 'Dados continuam salvos neste dispositivo';
+}
+
+function configurarIdentidadeVisual() {
+  const campoNome = $('#identidade-nome');
+  if (!campoNome) return;
+  try {
+    const identidade = lerIdentidadeVisual();
+    campoNome.value = identidade.nome;
+    aplicarIdentidadeVisual(identidade);
+  } catch (error) {
+    campoNome.value = NOME_PADRAO;
+    aplicarIdentidadeVisual({ nome: NOME_PADRAO, logoDataUrl: null });
+    definirStatusIdentidade(`Não foi possível carregar a personalização salva: ${error.message}`, true);
+  }
+}
+
+function lerIdentidadeVisual() {
+  const valor = localStorage.getItem(CHAVE_IDENTIDADE);
+  if (!valor) return { nome: NOME_PADRAO, logoDataUrl: null };
+  const identidade = JSON.parse(valor);
+  const nome = typeof identidade.nome === 'string' && identidade.nome.trim()
+    ? identidade.nome.trim().slice(0, 50)
+    : NOME_PADRAO;
+  const logoDataUrl = typeof identidade.logoDataUrl === 'string'
+    && identidade.logoDataUrl.length <= MAX_LOGO_DATA_URL_LENGTH
+    && /^data:image\/(?:webp|png);base64,/.test(identidade.logoDataUrl)
+    ? identidade.logoDataUrl
+    : null;
+  return { nome, logoDataUrl };
+}
+
+function aplicarIdentidadeVisual(identidade) {
+  const nome = identidade.nome || NOME_PADRAO;
+  const logo = identidade.logoDataUrl || LOGO_PADRAO;
+  $('#app-name').textContent = nome;
+  $('#footer-app-name').textContent = nome;
+  document.title = nome;
+  const logoTopo = $('#app-logo');
+  logoTopo.src = logo;
+  logoTopo.alt = `Logo de ${nome}`;
+  logoTopo.classList.toggle('object-contain', Boolean(identidade.logoDataUrl));
+  logoTopo.classList.toggle('object-cover', !identidade.logoDataUrl);
+  const preview = $('#identidade-logo-preview');
+  preview.src = logo;
+  preview.alt = `Prévia da logo de ${nome}`;
+}
+
+async function selecionarLogoVisual(event) {
+  const arquivo = event.target.files?.[0];
+  if (!arquivo) return;
+  try {
+    logoSelecionada = await otimizarLogo(arquivo);
+    $('#identidade-logo-preview').src = logoSelecionada;
+    $('#identidade-logo-preview').alt = 'Prévia da nova logo';
+    definirStatusIdentidade('Logo validada. Salve a personalização para aplicar.');
+  } catch (error) {
+    logoSelecionada = null;
+    event.target.value = '';
+    try {
+      $('#identidade-logo-preview').src = lerIdentidadeVisual().logoDataUrl || LOGO_PADRAO;
+    } catch {
+      $('#identidade-logo-preview').src = LOGO_PADRAO;
+    }
+    definirStatusIdentidade(error.message || 'Não foi possível processar a imagem.', true);
+  }
+}
+
+async function otimizarLogo(arquivo) {
+  const tiposPermitidos = ['image/png', 'image/jpeg', 'image/webp'];
+  if (!tiposPermitidos.includes(arquivo.type)) {
+    throw new Error('Escolha uma imagem PNG, JPEG ou WebP. SVG e outros formatos não são aceitos.');
+  }
+  if (arquivo.size > MAX_LOGO_BYTES) throw new Error('A imagem deve ter no máximo 5 MB.');
+
+  const imagemOriginal = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Não foi possível ler o arquivo de imagem.'));
+    reader.readAsDataURL(arquivo);
+  });
+  const imagem = await new Promise((resolve, reject) => {
+    const elemento = new Image();
+    elemento.onload = () => resolve(elemento);
+    elemento.onerror = () => reject(new Error('O arquivo selecionado não contém uma imagem válida.'));
+    elemento.src = imagemOriginal;
+  });
+  if (!imagem.naturalWidth || !imagem.naturalHeight) {
+    throw new Error('A imagem selecionada não possui dimensões válidas.');
+  }
+  if (imagem.naturalWidth * imagem.naturalHeight > 32_000_000) {
+    throw new Error('A imagem possui resolução excessiva. Escolha um arquivo menor.');
+  }
+
+  const escala = Math.min(1, 512 / Math.max(imagem.naturalWidth, imagem.naturalHeight));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(imagem.naturalWidth * escala));
+  canvas.height = Math.max(1, Math.round(imagem.naturalHeight * escala));
+  const contexto = canvas.getContext('2d');
+  if (!contexto) throw new Error('Este navegador não permite processar a imagem selecionada.');
+  contexto.drawImage(imagem, 0, 0, canvas.width, canvas.height);
+
+  const dataUrl = canvas.toDataURL('image/webp', 0.82);
+  if (!/^data:image\/(?:webp|png);base64,/.test(dataUrl)) {
+    throw new Error('Não foi possível converter a imagem para um formato seguro.');
+  }
+  if (dataUrl.length > MAX_LOGO_DATA_URL_LENGTH) {
+    throw new Error('A imagem otimizada ficou muito grande. Escolha uma imagem mais simples.');
+  }
+  return dataUrl;
+}
+
+function salvarIdentidadeVisual(event) {
+  event.preventDefault();
+  const nome = $('#identidade-nome').value.trim();
+  if (!nome) {
+    definirStatusIdentidade('Informe o nome que será exibido no aplicativo.', true);
+    return;
+  }
+
+  try {
+    let atual;
+    try {
+      atual = lerIdentidadeVisual();
+    } catch {
+      atual = { nome: NOME_PADRAO, logoDataUrl: null };
+    }
+    const identidade = {
+      nome: nome.slice(0, 50),
+      logoDataUrl: logoSelecionada || atual.logoDataUrl,
+    };
+    localStorage.setItem(CHAVE_IDENTIDADE, JSON.stringify(identidade));
+    aplicarIdentidadeVisual(identidade);
+    logoSelecionada = null;
+    $('#identidade-logo-arquivo').value = '';
+    definirStatusIdentidade('Personalização salva neste dispositivo e disponível offline.');
+  } catch (error) {
+    definirStatusIdentidade(`Não foi possível salvar a personalização: ${error.message}`, true);
+  }
+}
+
+function restaurarLogoVisual() {
+  try {
+    let atual;
+    try {
+      atual = lerIdentidadeVisual();
+    } catch {
+      atual = { nome: NOME_PADRAO, logoDataUrl: null };
+    }
+    const identidade = { ...atual, logoDataUrl: null };
+    localStorage.setItem(CHAVE_IDENTIDADE, JSON.stringify(identidade));
+    aplicarIdentidadeVisual(identidade);
+    logoSelecionada = null;
+    $('#identidade-logo-arquivo').value = '';
+    definirStatusIdentidade('Logo padrão restaurada neste dispositivo.');
+  } catch (error) {
+    definirStatusIdentidade(`Não foi possível restaurar a logo: ${error.message}`, true);
+  }
+}
+
+function definirStatusIdentidade(mensagem, erro = false) {
+  const status = $('#identidade-status');
+  if (!status) return;
+  status.textContent = mensagem;
+  status.classList.toggle('text-red-500', erro);
+  status.classList.toggle('text-emerald-500', !erro);
 }
 
 async function configurarSupabaseUI() {
@@ -271,6 +463,7 @@ async function mostrarResultadoSupabase(result) {
       renderCalcInsumos(),
       renderSelectInsumos(),
       renderClientes(),
+      renderCatalogo(),
     ]);
   }
 }
@@ -305,6 +498,7 @@ async function aoCadastrarInsumo(e) {
   await renderInsumos();
   await renderCalcInsumos();
   await renderSelectInsumos();
+  await renderCatalogo();
 }
 
 async function renderInsumos() {
@@ -330,6 +524,325 @@ async function renderSelectInsumos() {
       <span>${i.nome} <span class="text-xs text-slate-400">(estoque: ${i.quantidade})</span></span>
       <input type="number" min="0" step="0.01" value="1" placeholder="Qtd" class="input !w-20 !py-1 ml-auto">
     </label>`).join('');
+}
+
+// ============================================================
+// CATÁLOGO DE PRODUTOS E FICHAS TÉCNICAS
+// ============================================================
+async function renderCatalogo() {
+  const [produtos, fichas, insumos] = await Promise.all([
+    db.produtos.toArray(),
+    db.fichas_tecnicas.toArray(),
+    db.insumos.toArray(),
+  ]);
+  const selecionados = new Map(
+    [...document.querySelectorAll('#produto-insumos label')]
+      .filter((label) => label.querySelector('[data-produto-insumo]')?.checked)
+      .map((label) => [
+        Number(label.querySelector('[data-produto-insumo]').value),
+        Number(label.querySelector('[data-produto-quantidade]').value),
+      ])
+  );
+  renderOpcoesInsumosProduto(insumos, selecionados);
+
+  const fichasPorProduto = new Map();
+  fichas.forEach((ficha) => {
+    if (!fichasPorProduto.has(Number(ficha.produto_id))) fichasPorProduto.set(Number(ficha.produto_id), ficha);
+  });
+  const lista = $('#lista-produtos');
+  if (!lista) return;
+
+  produtos.sort((a, b) => String(a.nome ?? '').localeCompare(String(b.nome ?? ''), 'pt-BR'));
+  lista.innerHTML = produtos.map((produto) => {
+    const ficha = fichasPorProduto.get(Number(produto.id));
+    let calculo = null;
+    let composicao = [];
+    let erroFicha = '';
+    try {
+      if (ficha) {
+        composicao = lerComposicaoFicha(ficha);
+        const resultado = calcularCustoFicha({
+          itens: composicao,
+          insumos,
+          tempoMinutos: Number(ficha.tempo_minutos) || 0,
+          valorHora: Number(ficha.valor_hora) || 0,
+          taxaPagamento: Number(ficha.taxa_pagamento) || 0,
+          margemLucro: Number(ficha.margem_lucro) || 0,
+        });
+        composicao = resultado.composicao;
+        calculo = resultado.calculo;
+      }
+    } catch (error) {
+      erroFicha = error.message;
+    }
+
+    const linhasComposicao = composicao.map((item) => `
+      <li>${escaparHtml(item.nome)}: ${item.quantidade} ${escaparHtml(item.unidade)}</li>`).join('');
+    const custo = calculo?.custoTotal ?? (Number(produto.custo_total) || 0);
+    const preco = calculo?.precoVenda ?? (Number(produto.preco_base) || 0);
+    const semComposicao = !ficha || !composicao.length || erroFicha;
+
+    return `
+      <li class="bg-white dark:bg-slate-800 rounded-xl shadow p-4 border border-slate-200 dark:border-slate-700">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <h3 class="font-semibold">${escaparHtml(produto.nome)}</h3>
+            <p class="mt-1 text-xs text-slate-500">${escaparHtml(produto.tipo || 'Produto pré-estabelecido')}</p>
+          </div>
+          <div class="flex gap-2">
+            <button type="button" class="rounded-lg bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 text-xs" data-editar-produto="${produto.id}">Editar ficha</button>
+            <button type="button" class="rounded-lg bg-red-900 hover:bg-red-800 text-white px-3 py-1.5 text-xs" data-excluir-produto="${produto.id}">Excluir</button>
+          </div>
+        </div>
+        <div class="mt-3 grid grid-cols-2 gap-2 text-sm">
+          <p>Custo por unidade: <strong>${brl(custo)}</strong></p>
+          <p>Preço sugerido: <strong class="text-emerald-400">${brl(preco)}</strong></p>
+        </div>
+        <p class="mt-3 text-xs uppercase text-slate-500">Composição por unidade</p>
+        ${erroFicha
+          ? `<p class="text-sm text-amber-400">${escaparHtml(erroFicha)}</p>`
+          : linhasComposicao
+            ? `<ul class="mt-1 list-disc pl-5 text-sm text-slate-400">${linhasComposicao}</ul>`
+            : '<p class="mt-1 text-sm text-slate-400">Sem ficha técnica cadastrada.</p>'}
+        <div class="mt-4 flex flex-wrap items-end gap-2">
+          <label class="text-xs">Unidades
+            <input data-produto-quantidade-orcamento="${produto.id}" type="number" min="1" step="1" value="1" class="input !w-24 !py-1 mt-1">
+          </label>
+          <button type="button" data-orcar-produto="${produto.id}" ${semComposicao ? 'disabled title="Cadastre uma ficha técnica válida antes de gerar o orçamento"' : ''}
+            class="rounded-lg ${semComposicao ? 'bg-slate-700 text-slate-400 cursor-not-allowed' : 'bg-emerald-700 hover:bg-emerald-600 text-white'} px-3 py-1.5 text-xs">Gerar orçamento</button>
+        </div>
+      </li>`;
+  }).join('') || '<li class="text-sm text-slate-400 italic">Nenhum produto cadastrado. Crie o primeiro produto usando insumos do estoque.</li>';
+
+  lista.querySelectorAll('[data-editar-produto]').forEach((button) => {
+    button.addEventListener('click', () => editarProduto(Number(button.dataset.editarProduto)));
+  });
+  lista.querySelectorAll('[data-excluir-produto]').forEach((button) => {
+    button.addEventListener('click', () => excluirProduto(Number(button.dataset.excluirProduto)));
+  });
+}
+
+function renderOpcoesInsumosProduto(insumos, selecionados = new Map()) {
+  const lista = $('#produto-insumos');
+  if (!lista) return;
+  lista.innerHTML = insumos.map((insumo) => {
+    const quantidade = selecionados.get(Number(insumo.id));
+    const checked = quantidade !== undefined;
+    return `
+      <label class="flex items-center gap-2 text-sm py-1 flex-wrap">
+        <input type="checkbox" data-produto-insumo value="${insumo.id}" ${checked ? 'checked' : ''}>
+        <span>${escaparHtml(insumo.nome)} <span class="text-xs text-slate-400">(${escaparHtml(insumo.unidade || 'un')} · estoque ${Number(insumo.quantidade) || 0} · ${brl(insumo.custo_unitario || 0)})</span></span>
+        <input data-produto-quantidade type="number" min="0.01" step="0.01" value="${checked ? quantidade : 1}" ${checked ? '' : 'disabled'}
+          aria-label="Quantidade de ${escaparHtml(insumo.nome)} por produto" class="input !w-24 !py-1 ml-auto">
+      </label>`;
+  }).join('') || '<p class="text-xs text-slate-400 italic">Cadastre insumos no módulo Estoque antes de montar produtos.</p>';
+}
+
+function lerComposicaoProdutoForm() {
+  return [...document.querySelectorAll('#produto-insumos label')]
+    .filter((label) => label.querySelector('[data-produto-insumo]')?.checked)
+    .map((label) => ({
+      insumo_id: Number(label.querySelector('[data-produto-insumo]').value),
+      quantidade: Number(label.querySelector('[data-produto-quantidade]').value),
+    }));
+}
+
+async function calcularPreviewProduto() {
+  const insumos = await db.insumos.toArray();
+  return calcularCustoFicha({
+    itens: lerComposicaoProdutoForm(),
+    insumos,
+    tempoMinutos: Number($('#produto-tempo').value),
+    valorHora: Number($('#produto-valor-hora').value),
+    taxaPagamento: Number($('#produto-taxa').value) / 100,
+    margemLucro: Number($('#produto-margem').value) / 100,
+  });
+}
+
+async function atualizarPreviewProduto() {
+  const resultado = $('#produto-resultado');
+  if (!resultado) return;
+  document.querySelectorAll('#produto-insumos label').forEach((label) => {
+    const checkbox = label.querySelector('[data-produto-insumo]');
+    const quantidade = label.querySelector('[data-produto-quantidade]');
+    if (checkbox && quantidade) quantidade.disabled = !checkbox.checked;
+  });
+  try {
+    const { calculo } = await calcularPreviewProduto();
+    resultado.innerHTML = `
+      <dl class="grid grid-cols-2 gap-x-4 gap-y-1">
+        <dt class="text-slate-500">Custo de insumos</dt><dd class="text-right">${brl(calculo.custoInsumos)}</dd>
+        <dt class="text-slate-500">Mão de obra</dt><dd class="text-right">${brl(calculo.custoMaoDeObra)}</dd>
+        <dt class="text-slate-500">Taxas</dt><dd class="text-right">${brl(calculo.custoTaxas)}</dd>
+        <dt class="font-medium">Custo total por unidade</dt><dd class="text-right font-medium">${brl(calculo.custoTotal)}</dd>
+        <dt class="mt-2 text-slate-500">Preço sugerido por unidade</dt><dd class="mt-2 text-right text-lg font-bold text-emerald-400">${brl(calculo.precoVenda)}</dd>
+      </dl>`;
+  } catch (error) {
+    resultado.innerHTML = `<p class="text-amber-400">${escaparHtml(error.message)}</p>`;
+  }
+}
+
+async function aoSalvarProduto(event) {
+  event.preventDefault();
+  const id = Number($('#produto-id').value) || null;
+  const nome = $('#produto-nome').value.trim();
+  if (!nome) {
+    definirStatusProdutos('Informe o nome do produto.', true);
+    return;
+  }
+
+  try {
+    const produtoExistente = id ? await db.produtos.get(id) : null;
+    if (id && !produtoExistente) throw new Error('Este produto não foi encontrado. Atualize o catálogo e tente novamente.');
+    const fichaExistente = id
+      ? await db.fichas_tecnicas.where('produto_id').equals(id).first()
+      : null;
+    const { composicao, calculo } = await calcularPreviewProduto();
+    const agora = new Date().toISOString();
+    const produto = {
+      ...(produtoExistente || {}),
+      ...(id ? { id } : {}),
+      nome,
+      tipo: produtoExistente?.tipo || 'Produto pré-estabelecido',
+      custo_total: calculo.custoTotal,
+      preco_base: calculo.precoVenda,
+      criado_em: produtoExistente?.criado_em || agora,
+    };
+    const ficha = {
+      ...(fichaExistente || {}),
+      ...(fichaExistente?.id ? { id: fichaExistente.id } : {}),
+      produto_id: id || 0,
+      nome,
+      itens: JSON.stringify(composicao.map(({ insumo_id, quantidade }) => ({ insumo_id, quantidade }))),
+      tempo_minutos: Number($('#produto-tempo').value),
+      valor_hora: Number($('#produto-valor-hora').value),
+      taxa_pagamento: Number($('#produto-taxa').value) / 100,
+      margem_lucro: Number($('#produto-margem').value) / 100,
+      custo_total: calculo.custoTotal,
+      preco_sugerido: calculo.precoVenda,
+      criado_em: fichaExistente?.criado_em || agora,
+    };
+    await db.transaction('rw', db.produtos, db.fichas_tecnicas, async () => {
+      const produtoId = await salvar('produtos', produto);
+      if (!id) ficha.produto_id = produtoId;
+      await salvar('fichas_tecnicas', ficha);
+    });
+
+    await cancelarEdicaoProduto();
+    definirStatusProdutos(`Produto salvo. Custo por unidade ${brl(calculo.custoTotal)}; preço sugerido ${brl(calculo.precoVenda)}.`);
+    await renderCatalogo();
+  } catch (error) {
+    definirStatusProdutos(error.message || 'Não foi possível salvar o produto.', true);
+  }
+}
+
+async function editarProduto(id) {
+  const produto = await db.produtos.get(id);
+  if (!produto) return;
+  const ficha = await db.fichas_tecnicas.where('produto_id').equals(id).first();
+  $('#produto-id').value = produto.id;
+  $('#produto-nome').value = produto.nome || '';
+  $('#produto-tempo').value = ficha?.tempo_minutos ?? 0;
+  $('#produto-valor-hora').value = ficha?.valor_hora ?? 0;
+  $('#produto-taxa').value = (Number(ficha?.taxa_pagamento) || 0) * 100;
+  $('#produto-margem').value = (Number(ficha?.margem_lucro) || 0) * 100;
+  $('#produto-form-titulo').textContent = 'Editar produto e ficha técnica';
+  $('#produto-salvar').textContent = 'Salvar alterações';
+  $('#produto-cancelar').classList.remove('hidden');
+  const selecionados = new Map(lerComposicaoFicha(ficha).map((item) => [Number(item.insumo_id), Number(item.quantidade)]));
+  const insumos = await db.insumos.toArray();
+  renderOpcoesInsumosProduto(insumos, selecionados);
+  await atualizarPreviewProduto();
+  $('#produto-nome').focus();
+}
+
+async function excluirProduto(id) {
+  const produto = await db.produtos.get(id);
+  if (!produto) return;
+  if (!window.confirm(`Excluir "${produto.nome}" e sua ficha técnica? Orçamentos já criados serão mantidos.`)) return;
+  try {
+    await db.transaction('rw', db.produtos, db.fichas_tecnicas, async () => {
+      const fichas = await db.fichas_tecnicas.where('produto_id').equals(id).toArray();
+      for (const ficha of fichas) await remover('fichas_tecnicas', ficha.id);
+      await remover('produtos', id);
+    });
+    definirStatusProdutos(`Produto "${produto.nome}" removido do catálogo. Orçamentos anteriores foram preservados.`);
+    await renderCatalogo();
+  } catch (error) {
+    definirStatusProdutos(`Não foi possível excluir o produto: ${error.message}`, true);
+  }
+}
+
+async function cancelarEdicaoProduto() {
+  $('#form-produto')?.reset();
+  $('#produto-id').value = '';
+  $('#produto-tempo').value = 0;
+  $('#produto-valor-hora').value = 0;
+  $('#produto-taxa').value = 0;
+  $('#produto-margem').value = 30;
+  $('#produto-form-titulo').textContent = 'Cadastrar produto pré-estabelecido';
+  $('#produto-salvar').textContent = 'Salvar produto';
+  $('#produto-cancelar').classList.add('hidden');
+  $('#produtos-status').textContent = '';
+  renderOpcoesInsumosProduto(await db.insumos.toArray());
+  await atualizarPreviewProduto();
+}
+
+function definirStatusProdutos(mensagem, erro = false) {
+  const status = $('#produtos-status');
+  if (!status) return;
+  status.textContent = mensagem;
+  status.classList.toggle('text-red-500', erro);
+  status.classList.toggle('text-emerald-500', !erro);
+}
+
+async function aoAcionarProduto(event) {
+  const button = event.target.closest('[data-orcar-produto]');
+  if (!button || button.disabled) return;
+  const id = Number(button.dataset.orcarProduto);
+  const quantidade = Number(document.querySelector(`[data-produto-quantidade-orcamento="${id}"]`)?.value);
+  const cliente_id = Number($('#produto-cliente').value) || null;
+  button.disabled = true;
+  try {
+    const produto = await db.produtos.get(id);
+    const ficha = await db.fichas_tecnicas.where('produto_id').equals(id).first();
+    if (!produto || !ficha) throw new Error('Produto ou ficha técnica não encontrado.');
+    const { composicao, calculo } = await calcularCustoFicha({
+      itens: lerComposicaoFicha(ficha),
+      insumos: await db.insumos.toArray(),
+      tempoMinutos: Number(ficha.tempo_minutos) || 0,
+      valorHora: Number(ficha.valor_hora) || 0,
+      taxaPagamento: Number(ficha.taxa_pagamento) || 0,
+      margemLucro: Number(ficha.margem_lucro) || 0,
+    });
+    const itens = criarItensOS(composicao, quantidade);
+    const detalhes = [{
+      nome: produto.nome,
+      quantidade,
+      precoUnitario: calculo.precoVenda,
+      subtotal: calculo.precoVenda * quantidade,
+      insumos: composicao.map((item) => ({
+        nome: item.nome,
+        quantidade: item.quantidade * quantidade,
+        unidade: item.unidade,
+      })),
+    }];
+    await novaOS({
+      titulo: `${quantidade} × ${produto.nome}`,
+      cliente_id,
+      itens,
+      valor_total: calculo.precoVenda * quantidade,
+      sinal: 0,
+      orcamento_detalhes: detalhes,
+    });
+    definirStatusProdutos(`Orçamento de "${produto.nome}" criado no módulo Ordens de Serviço. ${cliente_id ? 'Use “Revisar no WhatsApp” para conferir e enviar.' : 'Selecione um cliente para compartilhar pelo WhatsApp.'}`);
+    document.querySelector('[data-tab="kanban"]')?.click();
+    document.getElementById('kanban')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (error) {
+    definirStatusProdutos(error.message || 'Não foi possível criar o orçamento.', true);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 // ============================================================
@@ -400,7 +913,8 @@ async function aoCadastrarOS(e) {
     quantidade: parseFloat(cb.closest('label')?.querySelector('input[type=number]')?.value) || 1,
   }));
 
-  await novaOS({ titulo, itens: itens.filter((it) => it.insumo_id), valor_total, sinal });
+  const cliente_id = $('#os-cliente').value ? Number($('#os-cliente').value) : null;
+  await novaOS({ titulo, cliente_id, itens: itens.filter((it) => it.insumo_id), valor_total, sinal });
   e.target.reset();
   $('#calc-resultado').innerHTML = '';
   $('#calc-resultado').dataset.valor = '';
@@ -443,8 +957,123 @@ async function renderFinanceiro() {
 // ============================================================
 async function renderClientes() {
   const sel = $('#os-cliente');
-  if (!sel) return;
   const clientes = await db.clientes.toArray();
-  sel.innerHTML = '<option value="">— Sem cliente —</option>' +
-    clientes.map((c) => `<option value="${c.id}">${c.nome}</option>`).join('');
+  clientes.sort((a, b) => String(a.nome ?? '').localeCompare(String(b.nome ?? ''), 'pt-BR'));
+
+  if (sel) {
+    const selecionado = sel.value;
+    sel.innerHTML = '<option value="">— Sem cliente —</option>' +
+      clientes.map((cliente) => `<option value="${cliente.id}">${escaparHtml(cliente.nome)}</option>`).join('');
+    sel.value = selecionado;
+  }
+  const produtoCliente = $('#produto-cliente');
+  if (produtoCliente) {
+    const selecionado = produtoCliente.value;
+    produtoCliente.innerHTML = '<option value="">— Sem cliente —</option>' +
+      clientes.map((cliente) => `<option value="${cliente.id}">${escaparHtml(cliente.nome)}</option>`).join('');
+    produtoCliente.value = selecionado;
+  }
+
+  const lista = $('#lista-clientes');
+  if (!lista) return;
+  lista.innerHTML = clientes.map((cliente) => {
+    let linkWhatsapp = '';
+    if (cliente.telefone) {
+      try {
+        linkWhatsapp = `<a class="rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1.5 text-xs" href="${escaparHtml(criarLinkWhatsapp(cliente.telefone))}" target="_blank" rel="noopener noreferrer">Abrir WhatsApp</a>`;
+      } catch {
+        linkWhatsapp = '<span class="text-xs text-amber-400" title="Corrija o número no cadastro">WhatsApp inválido</span>';
+      }
+    }
+
+    return `
+      <li class="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-700 rounded-lg px-3 py-3 text-sm border border-slate-200 dark:border-slate-600">
+        <div class="min-w-0">
+          <strong>${escaparHtml(cliente.nome)}</strong>
+          <p class="text-xs text-slate-500">${escaparHtml(cliente.telefone || 'WhatsApp não cadastrado')}${cliente.email ? ` · ${escaparHtml(cliente.email)}` : ''}</p>
+        </div>
+        <div class="flex items-center gap-2">
+          ${linkWhatsapp}
+          <button type="button" class="rounded-lg bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 text-xs" data-editar-cliente="${cliente.id}">Editar</button>
+        </div>
+      </li>`;
+  }).join('') || '<li class="text-sm text-slate-400 italic">Nenhum cliente cadastrado.</li>';
+
+  lista.querySelectorAll('[data-editar-cliente]').forEach((button) => {
+    button.addEventListener('click', () => editarCliente(Number(button.dataset.editarCliente)));
+  });
+}
+
+async function aoSalvarCliente(event) {
+  event.preventDefault();
+  const id = Number($('#cliente-id').value) || null;
+  const nome = $('#cliente-nome').value.trim();
+  const telefone = $('#cliente-whatsapp').value.trim();
+  const email = $('#cliente-email').value.trim().toLowerCase();
+  const status = $('#clientes-status');
+  status.textContent = '';
+  status.classList.remove('text-red-500', 'text-emerald-500');
+
+  try {
+    if (!nome) throw new Error('Informe o nome do cliente.');
+    normalizarTelefoneWhatsapp(telefone);
+    const cliente = id ? await db.clientes.get(id) : null;
+    if (id && !cliente) throw new Error('Este cliente não foi encontrado. Atualize a lista e tente novamente.');
+
+    if (email) {
+      const emailEmUso = (await db.clientes.toArray()).some((item) =>
+        item.id !== id && String(item.email ?? '').trim().toLowerCase() === email);
+      if (emailEmUso) throw new Error('Este e-mail já está cadastrado para outro cliente.');
+    }
+
+    const dados = {
+      ...(cliente || {}),
+      ...(id ? { id } : {}),
+      nome,
+      telefone,
+      criado_em: cliente?.criado_em || new Date().toISOString(),
+    };
+    if (email) dados.email = email;
+    else delete dados.email;
+
+    await salvar('clientes', dados);
+  } catch (error) {
+    status.textContent = error.message || 'Não foi possível salvar o cliente.';
+    status.classList.add('text-red-500');
+    return;
+  }
+
+  cancelarEdicaoCliente();
+  status.textContent = 'Cliente salvo neste dispositivo; a sincronização Supabase será agendada quando disponível.';
+  status.classList.add('text-emerald-500');
+  try {
+    await Promise.all([renderClientes(), renderKanban()]);
+  } catch (error) {
+    status.textContent = `Cliente salvo, mas a tela não pôde ser atualizada: ${error.message}`;
+    status.classList.remove('text-emerald-500');
+    status.classList.add('text-red-500');
+  }
+}
+
+async function editarCliente(id) {
+  const cliente = await db.clientes.get(id);
+  if (!cliente) return;
+  $('#cliente-id').value = cliente.id;
+  $('#cliente-nome').value = cliente.nome || '';
+  $('#cliente-whatsapp').value = cliente.telefone || '';
+  $('#cliente-email').value = cliente.email || '';
+  $('#cliente-form-titulo').textContent = 'Editar cliente';
+  $('#cliente-salvar').textContent = 'Salvar alterações';
+  $('#cliente-cancelar').classList.remove('hidden');
+  $('#clientes-status').textContent = '';
+  $('#cliente-nome').focus();
+}
+
+function cancelarEdicaoCliente() {
+  $('#form-cliente')?.reset();
+  $('#cliente-id').value = '';
+  $('#cliente-form-titulo').textContent = 'Cadastrar cliente';
+  $('#cliente-salvar').textContent = 'Salvar cliente';
+  $('#cliente-cancelar').classList.add('hidden');
+  $('#clientes-status').textContent = '';
 }

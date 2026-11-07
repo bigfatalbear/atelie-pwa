@@ -4,6 +4,7 @@
  */
 import { db, salvar, remover } from './db.js';
 import { descontarEstoque, estornarEstoque, brl } from './precificacao.js';
+import { criarLinkWhatsapp, montarMensagemOrcamento } from './whatsapp.mjs';
 
 export const COLUNAS = ['Orçamento', 'Arte Aprovada', 'Aguardando Insumo', 'Em Produção', 'Pronto'];
 
@@ -14,6 +15,7 @@ export async function novaOS(dados) {
     cliente_id: dados.cliente_id ?? null,
     descricao: dados.descricao ?? '',
     itens: JSON.stringify(dados.itens ?? []),   // [{insumo_id, quantidade}]
+    ...(dados.orcamento_detalhes ? { orcamento_detalhes: dados.orcamento_detalhes } : {}),
     valor_total: dados.valor_total ?? 0,
     sinal: dados.sinal ?? 0,                   // Sinal pago na aprovação
     saldo: (dados.valor_total ?? 0) - (dados.sinal ?? 0), // Saldo devedor na entrega
@@ -80,7 +82,7 @@ export async function renderKanban() {
   if (!el) return;
 
   const [ordens, clientes] = await Promise.all([db.ordens_servico.toArray(), db.clientes.toArray()]);
-  const clientMap = Object.fromEntries(clientes.map((c) => [c.id, c.nome]));
+  const clientMap = Object.fromEntries(clientes.map((c) => [c.id, c]));
 
   el.innerHTML = COLUNAS.map((col) => {
     const cards = ordens.filter((o) => o.status === col);
@@ -102,7 +104,7 @@ export async function renderKanban() {
           </span>
         </div>
         <div class="flex flex-col gap-2" data-col="${col}">
-          ${cards.map((o) => cardOS(o, clientMap[o.cliente_id] ?? '—')).join('') || '<p class="text-xs text-slate-400 text-center py-4 italic">Vazio</p>'}
+          ${cards.map((o) => cardOS(o, clientMap[o.cliente_id] ?? null)).join('') || '<p class="text-xs text-slate-400 text-center py-4 italic">Vazio</p>'}
         </div>
       </div>`;
   }).join('');
@@ -114,14 +116,15 @@ function cardOS(os, cliente) {
   const saldo = Math.max(0, (os.valor_total || 0) - (os.sinal || 0));
   const idx = COLUNAS.indexOf(os.status);
   const proxima = idx >= 0 && idx < COLUNAS.length - 1 ? COLUNAS[idx + 1] : null;
+  const acaoWhatsapp = criarAcaoWhatsapp(os, cliente);
 
   return `
     <article class="bg-white dark:bg-slate-700 rounded-lg shadow-sm p-3 border border-slate-200 dark:border-slate-600"
              data-id="${os.id}" draggable="true">
       <div class="flex justify-between items-start gap-2">
         <div>
-          <h4 class="font-medium text-sm text-slate-800 dark:text-slate-100">${os.titulo}</h4>
-          <p class="text-xs text-slate-500 dark:text-slate-400">${cliente} · ${os.criado_em?.slice(0, 10) ?? ''}</p>
+          <h4 class="font-medium text-sm text-slate-800 dark:text-slate-100">${escaparHtml(os.titulo)}</h4>
+          <p class="text-xs text-slate-500 dark:text-slate-400">${escaparHtml(cliente?.nome ?? '—')} · ${escaparHtml(os.criado_em?.slice(0, 10) ?? '')}</p>
         </div>
         <button class="text-slate-300 hover:text-red-500 text-lg leading-none" data-excluir="${os.id}" aria-label="Excluir OS">×</button>
       </div>
@@ -132,9 +135,51 @@ function cardOS(os, cliente) {
       </div>
       <div class="mt-2 flex gap-1">
         ${proxima ? `<button class="text-xs bg-slate-800 dark:bg-slate-900 text-white rounded px-2 py-1 hover:bg-slate-700" data-mover="${os.id}" data-destino="${proxima}">→ ${proxima}</button>` : ''}
+        ${acaoWhatsapp}
         ${os.status === 'Pronto' ? `<span class="text-xs bg-emerald-100 text-emerald-700 rounded px-2 py-1">Entregar</span>` : ''}
       </div>
     </article>`;
+}
+
+function criarAcaoWhatsapp(os, cliente) {
+  if (os.status !== 'Orçamento') return '';
+  if (!cliente) return '<button type="button" disabled title="Vincule um cliente ao orçamento" class="text-xs rounded px-2 py-1 bg-slate-700 text-slate-400 cursor-not-allowed">WhatsApp indisponível</button>';
+  if (!cliente.telefone) return '<button type="button" disabled title="Cadastre o WhatsApp deste cliente" class="text-xs rounded px-2 py-1 bg-slate-700 text-slate-400 cursor-not-allowed">WhatsApp não cadastrado</button>';
+
+  try {
+    const mensagem = montarMensagemOrcamento({
+      cliente: cliente.nome || 'tudo bem',
+      titulo: os.titulo || 'Orçamento',
+      valorTotal: os.valor_total,
+      sinal: os.sinal,
+      detalhes: lerDetalhesOrcamento(os.orcamento_detalhes),
+    });
+    const href = criarLinkWhatsapp(cliente.telefone, mensagem);
+    return `<a class="text-xs bg-emerald-700 hover:bg-emerald-600 text-white rounded px-2 py-1" href="${escaparHtml(href)}" target="_blank" rel="noopener noreferrer" aria-label="Revisar orçamento de ${escaparHtml(cliente.nome)} no WhatsApp">Revisar no WhatsApp</a>`;
+  } catch {
+    return '<button type="button" disabled title="Corrija o número no cadastro do cliente" class="text-xs rounded px-2 py-1 bg-slate-700 text-amber-400 cursor-not-allowed">WhatsApp inválido</button>';
+  }
+}
+
+function lerDetalhesOrcamento(detalhes) {
+  if (Array.isArray(detalhes)) return detalhes;
+  if (typeof detalhes !== 'string') return [];
+  try {
+    const parsed = JSON.parse(detalhes);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function escaparHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[char]);
 }
 
 /** Eventos de clique + drag & drop nativo dos cards */
