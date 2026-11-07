@@ -61,6 +61,10 @@
           <button id="btn-supabase-entrar" type="button" class="btn-primario">Entrar e sincronizar</button>
           <button id="btn-supabase-criar-conta" type="button" class="rounded-lg bg-sky-700 hover:bg-sky-600 text-white px-3 py-2 text-sm">Criar conta</button>
         </div>
+        <div id="supabase-resend-confirmation" class="hidden sm:col-span-2 items-center gap-2 text-sm">
+          <button id="btn-supabase-resend-confirmation" type="button" class="text-cyan-400 underline underline-offset-2 disabled:cursor-not-allowed disabled:opacity-60">Reenviar e-mail de confirmação</button>
+          <span id="supabase-resend-status" class="text-slate-500" role="status" aria-live="polite"></span>
+        </div>
       </div>
       <div id="supabase-session" class="hidden flex-wrap items-center gap-3 text-sm">
         <span>Conta conectada: <strong id="supabase-session-email"></strong></span>
@@ -173,6 +177,11 @@
   <footer class="text-center text-xs text-slate-400 pb-6">
     Ateliê Manager · PWA offline-first (Dexie.js + Supabase) · v1.0
   </footer>
+
+  <div id="auth-toast" class="auth-toast hidden" role="status" aria-live="polite" aria-atomic="true">
+    <p id="auth-toast-message" class="flex-1"></p>
+    <button id="auth-toast-dismiss" type="button" aria-label="Dispensar aviso" class="auth-toast-dismiss">×</button>
+  </div>
 
   <!-- SDKs -->
   <script src="https://cdn.jsdelivr.net/npm/dexie@4.0.8/dist/dexie.min.js"></script>
