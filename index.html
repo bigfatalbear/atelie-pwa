@@ -160,6 +160,45 @@
         </label>
       </div>
       <ul id="lista-produtos" class="grid gap-3 md:grid-cols-2" aria-label="Produtos cadastrados"></ul>
+      <dialog id="dialog-orcamento-produto" aria-labelledby="orcamento-produto-heading" class="w-[min(94vw,42rem)] max-h-[90vh] rounded-xl border border-slate-600 bg-slate-900 p-0 text-slate-100 shadow-2xl backdrop:bg-slate-950/70">
+        <form id="form-orcamento-produto" class="space-y-4 p-5">
+          <div>
+            <h3 id="orcamento-produto-heading" class="text-lg font-semibold">Personalizar orçamento</h3>
+            <p class="text-sm text-slate-400">Revise os detalhes e a mensagem antes de criar a OS e abrir o WhatsApp.</p>
+          </div>
+          <input id="orcamento-produto-id" type="hidden">
+          <div class="grid gap-3 sm:grid-cols-2">
+            <label class="text-sm sm:col-span-2">Produto/descrição
+              <input id="orcamento-produto-titulo" required maxlength="160" class="input mt-1">
+            </label>
+            <label class="text-sm">Cliente
+              <select id="orcamento-produto-cliente" required class="input mt-1"></select>
+            </label>
+            <label class="text-sm">Quantidade
+              <input id="orcamento-produto-quantidade" required type="number" min="1" step="1" class="input mt-1">
+            </label>
+            <label class="text-sm">Preço por unidade (R$)
+              <input id="orcamento-produto-preco" required type="number" min="0" step="0.01" class="input mt-1">
+            </label>
+            <label class="text-sm">Sinal (R$)
+              <input id="orcamento-produto-sinal" required type="number" min="0" step="0.01" value="0" class="input mt-1">
+            </label>
+          </div>
+          <p id="orcamento-produto-total" class="rounded-lg bg-slate-800 p-3 text-sm" aria-live="polite"></p>
+          <label class="block text-sm">Mensagem adicional / personalização para o cliente
+            <textarea id="orcamento-produto-mensagem" rows="4" maxlength="1000" placeholder="Ex.: prazo de produção, opção de acabamento ou condição especial" class="input mt-1"></textarea>
+          </label>
+          <div class="rounded-lg border border-slate-700 p-3">
+            <p class="mb-2 text-xs font-semibold uppercase text-slate-400">Prévia da mensagem do WhatsApp</p>
+            <pre id="orcamento-produto-preview" class="whitespace-pre-wrap break-words text-sm text-slate-300"></pre>
+          </div>
+          <p id="orcamento-produto-status" class="text-sm text-red-400" role="status" aria-live="polite"></p>
+          <div class="flex flex-wrap justify-end gap-2">
+            <button id="orcamento-produto-fechar" type="button" class="rounded-lg bg-slate-700 hover:bg-slate-600 px-3 py-2 text-sm">Cancelar</button>
+            <button type="submit" class="btn-primario">Criar orçamento e abrir WhatsApp</button>
+          </div>
+        </form>
+      </dialog>
     </section>
 
     <!-- ====================== PÁGINA: CLIENTES ====================== -->

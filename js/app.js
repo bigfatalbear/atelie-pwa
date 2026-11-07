@@ -12,8 +12,8 @@ import {
 } from './supabase-sync.js';
 import { calcularPrecoVenda, brl } from './precificacao.js';
 import { renderKanban, novaOS, COLUNAS } from './kanban.js';
-import { criarLinkWhatsapp, normalizarTelefoneWhatsapp } from './whatsapp.mjs';
-import { calcularCustoFicha, criarItensOS, lerComposicaoFicha } from './catalogo.mjs';
+import { criarLinkWhatsapp, montarMensagemOrcamento, normalizarTelefoneWhatsapp } from './whatsapp.mjs';
+import { calcularCustoFicha, criarRascunhoOrcamento, lerComposicaoFicha } from './catalogo.mjs';
 
 const $ = (sel) => document.querySelector(sel);
 const CHAVE_IDENTIDADE = 'atelie-identidade-visual';
@@ -33,6 +33,7 @@ let emailConfirmacaoPendente = null;
 let cooldownReenvioAte = 0;
 let timerCooldownReenvio = null;
 let logoSelecionada = null;
+let orcamentoComposicaoPendente = [];
 
 // ============================================================
 // INICIALIZAÇÃO
@@ -68,6 +69,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('#form-produto')?.addEventListener('change', atualizarPreviewProduto);
   $('#produto-cancelar')?.addEventListener('click', cancelarEdicaoProduto);
   $('#lista-produtos')?.addEventListener('click', aoAcionarProduto);
+  $('#form-orcamento-produto')?.addEventListener('submit', salvarOrcamentoProduto);
+  $('#orcamento-produto-fechar')?.addEventListener('click', fecharEditorOrcamento);
+  ['#orcamento-produto-quantidade', '#orcamento-produto-preco', '#orcamento-produto-sinal'].forEach((selector) => {
+    $(selector)?.addEventListener('input', atualizarPreviewOrcamentoProduto);
+  });
+  $('#orcamento-produto-cliente')?.addEventListener('change', atualizarPreviewOrcamentoProduto);
+  $('#orcamento-produto-titulo')?.addEventListener('input', atualizarPreviewOrcamentoProduto);
+  $('#orcamento-produto-mensagem')?.addEventListener('input', atualizarPreviewOrcamentoProduto);
   // Selo online/offline
   atualizarSelo();
   window.addEventListener('online', atualizarSelo);
@@ -569,6 +578,7 @@ async function renderCatalogo() {
           taxaPagamento: Number(ficha.taxa_pagamento) || 0,
           margemLucro: Number(ficha.margem_lucro) || 0,
         });
+        orcamentoComposicaoPendente = composicao;
         composicao = resultado.composicao;
         calculo = resultado.calculo;
       }
@@ -800,8 +810,6 @@ async function aoAcionarProduto(event) {
   const button = event.target.closest('[data-orcar-produto]');
   if (!button || button.disabled) return;
   const id = Number(button.dataset.orcarProduto);
-  const quantidade = Number(document.querySelector(`[data-produto-quantidade-orcamento="${id}"]`)?.value);
-  const cliente_id = Number($('#produto-cliente').value) || null;
   button.disabled = true;
   try {
     const produto = await db.produtos.get(id);
@@ -815,33 +823,165 @@ async function aoAcionarProduto(event) {
       taxaPagamento: Number(ficha.taxa_pagamento) || 0,
       margemLucro: Number(ficha.margem_lucro) || 0,
     });
-    const itens = criarItensOS(composicao, quantidade);
-    const detalhes = [{
-      nome: produto.nome,
-      quantidade,
-      precoUnitario: calculo.precoVenda,
-      subtotal: calculo.precoVenda * quantidade,
-      insumos: composicao.map((item) => ({
-        nome: item.nome,
-        quantidade: item.quantidade * quantidade,
-        unidade: item.unidade,
-      })),
-    }];
-    await novaOS({
-      titulo: `${quantidade} × ${produto.nome}`,
-      cliente_id,
-      itens,
-      valor_total: calculo.precoVenda * quantidade,
-      sinal: 0,
-      orcamento_detalhes: detalhes,
-    });
-    definirStatusProdutos(`Orçamento de "${produto.nome}" criado no módulo Ordens de Serviço. ${cliente_id ? 'Use “Revisar no WhatsApp” para conferir e enviar.' : 'Selecione um cliente para compartilhar pelo WhatsApp.'}`);
-    document.querySelector('[data-tab="kanban"]')?.click();
-    document.getElementById('kanban')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const clienteSelecionado = $('#produto-cliente').value;
+    const clienteSelect = $('#orcamento-produto-cliente');
+    clienteSelect.innerHTML = $('#produto-cliente').innerHTML;
+    clienteSelect.value = clienteSelecionado;
+    $('#orcamento-produto-id').value = id;
+    $('#orcamento-produto-titulo').value = produto.nome;
+    $('#orcamento-produto-quantidade').value =
+      document.querySelector(`[data-produto-quantidade-orcamento="${id}"]`)?.value || '1';
+    $('#orcamento-produto-preco').value = calculo.precoVenda.toFixed(2);
+    $('#orcamento-produto-sinal').value = '0';
+    $('#orcamento-produto-mensagem').value = '';
+    $('#orcamento-produto-status').textContent = '';
+    await atualizarPreviewOrcamentoProduto();
+    $('#dialog-orcamento-produto').showModal();
+    $('#orcamento-produto-titulo').focus();
   } catch (error) {
     definirStatusProdutos(error.message || 'Não foi possível criar o orçamento.', true);
   } finally {
     button.disabled = false;
+  }
+}
+
+function fecharEditorOrcamento() {
+  $('#dialog-orcamento-produto')?.close();
+}
+
+function valorNumericoOrcamento(id) {
+  return Number(document.getElementById(id).value);
+}
+
+async function atualizarTotalOrcamentoProduto() {
+  const quantidade = valorNumericoOrcamento('orcamento-produto-quantidade');
+  const preco = valorNumericoOrcamento('orcamento-produto-preco');
+  const sinal = valorNumericoOrcamento('orcamento-produto-sinal');
+  const total = quantidade * preco;
+  const saldo = total - sinal;
+  const preview = $('#orcamento-produto-total');
+
+  if (!Number.isInteger(quantidade) || quantidade < 1 || !Number.isFinite(preco) || preco < 0
+    || !Number.isFinite(sinal) || sinal < 0 || sinal > total) {
+    preview.textContent = 'Informe quantidade e preço válidos. O sinal deve estar entre zero e o total.';
+    preview.classList.add('text-amber-400');
+    return false;
+  }
+  preview.classList.remove('text-amber-400');
+  preview.textContent = `Total: ${brl(total)} · Sinal: ${brl(sinal)} · Saldo: ${brl(saldo)}`;
+  return true;
+}
+
+async function atualizarPreviewOrcamentoProduto() {
+  const valido = await atualizarTotalOrcamentoProduto();
+  const preview = $('#orcamento-produto-preview');
+  if (!valido) {
+    preview.textContent = 'A prévia será atualizada quando quantidade, preço e sinal forem válidos.';
+    return;
+  }
+  const cliente = $('#orcamento-produto-cliente').selectedOptions[0]?.textContent;
+  if (!cliente) {
+    preview.textContent = 'Selecione um cliente para visualizar a mensagem completa.';
+    return;
+  }
+
+  try {
+    const rascunho = criarRascunhoOrcamento({
+      titulo: $('#orcamento-produto-titulo').value,
+      composicao: orcamentoComposicaoPendente,
+      quantidade: valorNumericoOrcamento('orcamento-produto-quantidade'),
+      precoUnitario: valorNumericoOrcamento('orcamento-produto-preco'),
+      sinal: valorNumericoOrcamento('orcamento-produto-sinal'),
+    });
+    preview.textContent = montarMensagemOrcamento({
+      cliente,
+      titulo: rascunho.titulo,
+      valorTotal: rascunho.valor_total,
+      sinal: rascunho.sinal,
+      detalhes: rascunho.detalhes,
+      observacao: $('#orcamento-produto-mensagem').value,
+    });
+  } catch (error) {
+    preview.textContent = error.message;
+  }
+}
+
+async function salvarOrcamentoProduto(event) {
+  event.preventDefault();
+  const status = $('#orcamento-produto-status');
+  status.textContent = '';
+  const novaAba = window.open('about:blank', '_blank');
+  const botao = $('#form-orcamento-produto button[type="submit"]');
+  botao.disabled = true;
+  try {
+    if (!await atualizarTotalOrcamentoProduto()) {
+      throw new Error('Revise quantidade, preço e sinal antes de continuar.');
+    }
+
+    const id = Number($('#orcamento-produto-id').value);
+    const produto = await db.produtos.get(id);
+    const ficha = await db.fichas_tecnicas.where('produto_id').equals(id).first();
+    const clienteId = Number($('#orcamento-produto-cliente').value);
+    const cliente = await db.clientes.get(clienteId);
+    if (!produto || !ficha) throw new Error('Produto ou ficha técnica não encontrado.');
+    if (!cliente) throw new Error('Selecione um cliente cadastrado para criar o orçamento.');
+    const link = criarLinkWhatsapp(cliente.telefone);
+
+    const quantidade = valorNumericoOrcamento('orcamento-produto-quantidade');
+    const precoUnitario = valorNumericoOrcamento('orcamento-produto-preco');
+    const sinal = valorNumericoOrcamento('orcamento-produto-sinal');
+    const titulo = $('#orcamento-produto-titulo').value.trim();
+    const observacao = $('#orcamento-produto-mensagem').value.trim();
+    if (!titulo) throw new Error('Informe o nome ou descrição que será exibido no orçamento.');
+
+    const { composicao } = await calcularCustoFicha({
+      itens: lerComposicaoFicha(ficha),
+      insumos: await db.insumos.toArray(),
+      tempoMinutos: Number(ficha.tempo_minutos) || 0,
+      valorHora: Number(ficha.valor_hora) || 0,
+      taxaPagamento: Number(ficha.taxa_pagamento) || 0,
+      margemLucro: Number(ficha.margem_lucro) || 0,
+    });
+    const rascunho = criarRascunhoOrcamento({
+      titulo,
+      composicao,
+      quantidade,
+      precoUnitario,
+      sinal,
+    });
+    const mensagem = montarMensagemOrcamento({
+      cliente: cliente.nome,
+      titulo: rascunho.titulo,
+      valorTotal: rascunho.valor_total,
+      sinal: rascunho.sinal,
+      detalhes: rascunho.detalhes,
+      observacao,
+    });
+    const osId = await novaOS({
+      titulo: rascunho.titulo,
+      cliente_id: clienteId,
+      produto_id: produto.id,
+      itens: rascunho.itens,
+      valor_total: rascunho.valor_total,
+      sinal: rascunho.sinal,
+      orcamento_detalhes: rascunho.detalhes,
+      mensagem_adicional: observacao,
+    });
+    const url = `${link}?text=${encodeURIComponent(mensagem)}`;
+    if (novaAba) {
+      novaAba.opener = null;
+      novaAba.location.href = url;
+    } else {
+      definirStatusProdutos(`Orçamento criado (#${osId}), mas o navegador bloqueou a nova aba. Abra o quadro e use “Revisar no WhatsApp”.`);
+    }
+    fecharEditorOrcamento();
+    document.querySelector('[data-tab="kanban"]')?.click();
+    document.getElementById('kanban')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (error) {
+    if (novaAba) novaAba.close();
+    status.textContent = error.message || 'Não foi possível criar o orçamento.';
+  } finally {
+    botao.disabled = false;
   }
 }
 
