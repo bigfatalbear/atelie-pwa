@@ -24,8 +24,8 @@
   <header class="bg-slate-800 dark:bg-slate-950 text-white px-4 py-3 sticky top-0 z-40">
     <div class="max-w-6xl mx-auto flex items-center justify-between gap-3">
       <h1 class="flex items-center gap-2 font-bold text-lg tracking-tight">
-        <img src="icons/icon-192.jpg" alt="Logo do Ateliê" class="h-10 w-10 shrink-0 rounded-lg bg-white object-cover ring-1 ring-white/20">
-        <span>Ateliê Manager</span>
+        <img id="app-logo" src="icons/icon-192.jpg" alt="Logo do Ateliê" class="h-10 w-10 shrink-0 rounded-lg bg-white object-cover ring-1 ring-white/20">
+        <span id="app-name">Ateliê Manager</span>
       </h1>
       <div class="flex items-center gap-3">
         <button id="btn-sync" class="text-xs bg-slate-700 hover:bg-slate-600 rounded-full px-3 py-1" title="Sincronizar com Supabase">⭳ Supabase</button>
@@ -35,6 +35,9 @@
     <!-- Abas -->
     <nav class="max-w-6xl mx-auto mt-3 flex gap-2 overflow-x-auto" role="tablist" aria-label="Navegação">
       <button data-tab="kanban" class="data-tab bg-slate-800 text-white rounded-lg px-4 py-1.5 text-sm whitespace-nowrap" role="tab">🗂️ Ordens de Serviço</button>
+      <button data-tab="clientes" class="rounded-lg px-4 py-1.5 text-sm bg-slate-200 text-slate-800 whitespace-nowrap" role="tab">👥 Clientes</button>
+      <button data-tab="produtos" class="rounded-lg px-4 py-1.5 text-sm bg-slate-200 text-slate-800 whitespace-nowrap" role="tab">🧾 Produtos</button>
+      <button data-tab="personalizacao" class="rounded-lg px-4 py-1.5 text-sm bg-slate-200 text-slate-800 whitespace-nowrap" role="tab">🎨 Personalização</button>
       <button data-tab="insumos" class="rounded-lg px-4 py-1.5 text-sm bg-slate-200 text-slate-800 whitespace-nowrap" role="tab">📦 Insumos</button>
       <button data-tab="preco" class="rounded-lg px-4 py-1.5 text-sm bg-slate-200 text-slate-800 whitespace-nowrap" role="tab">🧮 Precificação</button>
       <button data-tab="financeiro" class="rounded-lg px-4 py-1.5 text-sm bg-slate-200 text-slate-800 whitespace-nowrap" role="tab">💰 Financeiro</button>
@@ -114,6 +117,100 @@
       </form>
     </section>
 
+    <!-- ====================== PÁGINA: PRODUTOS ====================== -->
+    <section data-page="produtos" class="hidden">
+      <h2 class="font-semibold text-slate-700 dark:text-slate-200 mb-2">Catálogo de Produtos</h2>
+      <p class="text-sm text-slate-500 mb-4">Monte fichas com os insumos do estoque e calcule custo e preço sugerido. Os orçamentos guardam a composição usada no momento da criação.</p>
+      <form id="form-produto" class="mb-6 bg-white dark:bg-slate-800 rounded-xl shadow p-4 space-y-3 border border-slate-200 dark:border-slate-700">
+        <h3 id="produto-form-titulo" class="font-semibold">Cadastrar produto pré-estabelecido</h3>
+        <input id="produto-id" type="hidden">
+        <div class="grid gap-3 sm:grid-cols-2">
+          <label class="text-sm">Nome do produto
+            <input id="produto-nome" required maxlength="120" placeholder="Ex.: Álbum de fotos A5" class="input mt-1">
+          </label>
+          <label class="text-sm">Tempo de produção (minutos)
+            <input id="produto-tempo" type="number" min="0" step="1" value="0" class="input mt-1">
+          </label>
+          <label class="text-sm">Valor da hora de trabalho (R$)
+            <input id="produto-valor-hora" type="number" min="0" step="0.01" value="0" class="input mt-1">
+          </label>
+          <label class="text-sm">Taxa de pagamento (%)
+            <input id="produto-taxa" type="number" min="0" step="0.1" value="0" class="input mt-1">
+          </label>
+          <label class="text-sm">Margem de lucro (%)
+            <input id="produto-margem" type="number" min="0" max="99" step="1" value="30" class="input mt-1">
+          </label>
+        </div>
+        <fieldset class="border border-slate-200 dark:border-slate-600 rounded-lg p-3">
+          <legend class="text-xs uppercase text-slate-500 px-1">Composição por unidade</legend>
+          <div id="produto-insumos" class="grid gap-1.5 sm:grid-cols-2 py-1"></div>
+        </fieldset>
+        <div id="produto-resultado" class="bg-slate-50 dark:bg-slate-900 rounded-lg p-3 text-sm" aria-live="polite">
+          <p class="text-slate-500">Selecione insumos para calcular o custo e o preço sugerido.</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button id="produto-salvar" type="submit" class="btn-primario">Salvar produto</button>
+          <button id="produto-cancelar" type="button" class="hidden rounded-lg bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 text-sm">Cancelar edição</button>
+        </div>
+        <p id="produtos-status" class="text-sm" role="status" aria-live="polite"></p>
+      </form>
+      <div class="mb-3 max-w-sm">
+        <label class="text-sm">Cliente do próximo orçamento (opcional)
+          <select id="produto-cliente" class="input mt-1"></select>
+        </label>
+      </div>
+      <ul id="lista-produtos" class="grid gap-3 md:grid-cols-2" aria-label="Produtos cadastrados"></ul>
+    </section>
+
+    <!-- ====================== PÁGINA: CLIENTES ====================== -->
+    <section data-page="clientes" class="hidden">
+      <h2 class="font-semibold text-slate-700 dark:text-slate-200 mb-3">Cadastro de Clientes</h2>
+      <form id="form-cliente" class="mb-6 bg-white dark:bg-slate-800 rounded-xl shadow p-4 space-y-3 border border-slate-200 dark:border-slate-700">
+        <h3 id="cliente-form-titulo" class="font-semibold">Cadastrar cliente</h3>
+        <input id="cliente-id" type="hidden">
+        <div class="grid gap-3 sm:grid-cols-2">
+          <label class="text-sm">Nome
+            <input id="cliente-nome" required maxlength="120" autocomplete="name" placeholder="Nome do cliente" class="input mt-1">
+          </label>
+          <label class="text-sm">WhatsApp
+            <input id="cliente-whatsapp" required type="tel" inputmode="tel" autocomplete="tel" placeholder="(11) 99999-9999" class="input mt-1" aria-describedby="cliente-whatsapp-ajuda">
+            <span id="cliente-whatsapp-ajuda" class="mt-1 block text-xs text-slate-500">Informe DDD e número; o código +55 será usado quando não informado.</span>
+          </label>
+          <label class="text-sm sm:col-span-2">E-mail (opcional)
+            <input id="cliente-email" type="email" maxlength="254" autocomplete="email" placeholder="cliente@exemplo.com" class="input mt-1">
+          </label>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button id="cliente-salvar" type="submit" class="btn-primario">Salvar cliente</button>
+          <button id="cliente-cancelar" type="button" class="hidden rounded-lg bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 text-sm">Cancelar edição</button>
+        </div>
+        <p id="clientes-status" class="text-sm" role="status" aria-live="polite"></p>
+      </form>
+      <ul id="lista-clientes" class="flex flex-col gap-2" aria-label="Clientes cadastrados"></ul>
+    </section>
+
+    <!-- ====================== PÁGINA: PERSONALIZAÇÃO ====================== -->
+    <section data-page="personalizacao" class="hidden">
+      <h2 class="font-semibold text-slate-700 dark:text-slate-200 mb-3">Personalização do aplicativo</h2>
+      <p class="text-sm text-slate-500 mb-4">O nome e a logo ficam salvos neste dispositivo e continuam disponíveis offline.</p>
+      <form id="form-identidade" class="bg-white dark:bg-slate-800 rounded-xl shadow p-4 space-y-4 border border-slate-200 dark:border-slate-700 max-w-2xl">
+        <label class="block text-sm">Nome exibido no topo
+          <input id="identidade-nome" required maxlength="50" placeholder="Nome do seu ateliê" class="input mt-1">
+        </label>
+        <div class="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-center">
+          <label class="text-sm">Logo (PNG, JPEG ou WebP; até 5 MB)
+            <input id="identidade-logo-arquivo" type="file" accept="image/png,image/jpeg,image/webp" class="input mt-1">
+          </label>
+          <img id="identidade-logo-preview" src="icons/icon-192.jpg" alt="Prévia da logo" class="h-16 w-16 rounded-lg bg-white object-contain p-1 ring-1 ring-slate-600">
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button type="submit" class="btn-primario">Salvar personalização</button>
+          <button id="identidade-logo-remover" type="button" class="rounded-lg bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 text-sm">Restaurar logo padrão</button>
+        </div>
+        <p id="identidade-status" class="text-sm" role="status" aria-live="polite"></p>
+      </form>
+    </section>
+
     <!-- ====================== PÁGINA: INSUMOS ====================== -->
     <section data-page="insumos" class="hidden">
       <h2 class="font-semibold text-slate-700 dark:text-slate-200 mb-3">Controle de Estoque de Insumos</h2>
@@ -175,7 +272,7 @@
   </main>
 
   <footer class="text-center text-xs text-slate-400 pb-6">
-    Ateliê Manager · PWA offline-first (Dexie.js + Supabase) · v1.0
+    <span id="footer-app-name">Ateliê Manager</span> · PWA offline-first (Dexie.js + Supabase) · v1.0
   </footer>
 
   <div id="auth-toast" class="auth-toast hidden" role="status" aria-live="polite" aria-atomic="true">
