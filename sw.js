@@ -5,7 +5,7 @@
  *   - Navegação: network-first com fallback ao cache (permite uso 100% offline)
  *   - Demais requisições: network-first
  */
-const CACHE_NAME = 'atelie-v2';
+const CACHE_NAME = 'atelie-v3';
 const APP_SHELL = [
   './',
   './index.html',
@@ -15,12 +15,12 @@ const APP_SHELL = [
   './css/styles.css',
   './js/app.js',
   './js/db.js',
+  './js/google-drive.js',
   './js/precificacao.js',
   './js/kanban.js',
-  // CDNs (Tailwind, Dexie, Supabase) congelados no cache para uso offline
+  // CDNs do app congelados no cache para uso offline
   'https://cdn.tailwindcss.com',
   'https://cdn.jsdelivr.net/npm/dexie@4.0.8/dist/dexie.min.js',
-  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js',
 ];
 
 // ---------- INSTALAÇÃO: pré-cache do app shell ----------
@@ -46,8 +46,8 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
 
-  // Ignora chamadas à API do Supabase (nunca cachear dados de sync)
-  if (request.url.includes('/supabase.') && request.url.includes('supabase.co')) return;
+  // APIs autenticadas e scripts OAuth nunca devem passar pelo cache do app.
+  if (request.url.includes('googleapis.com') || request.url.includes('accounts.google.com')) return;
 
   // Navegação: network-first, fallback ao cache
   if (request.mode === 'navigate') {
