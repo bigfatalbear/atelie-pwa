@@ -63,35 +63,64 @@ export function criarItensOS(composicao, unidades = 1) {
   }));
 }
 
-export function criarRascunhoOrcamento({ titulo, composicao, quantidade, precoUnitario, sinal = 0 }) {
-  const nome = String(titulo ?? '').trim();
-  const unidades = Number(quantidade);
-  const preco = Number(precoUnitario);
+export function criarRascunhoOrcamento({ produtos, titulo, composicao, quantidade, precoUnitario, sinal = 0 }) {
   const entrada = Number(sinal);
-  if (!nome) throw new Error('Informe o nome ou descrição que será exibido no orçamento.');
-  if (!Number.isInteger(unidades) || unidades < 1) {
-    throw new Error('A quantidade do produto deve ser um número inteiro maior que zero.');
-  }
-  if (!Number.isFinite(preco) || preco < 0) throw new Error('Informe um preço unitário válido.');
   if (!Number.isFinite(entrada) || entrada < 0) throw new Error('Informe um sinal válido.');
 
-  const total = Math.round(preco * unidades * 100) / 100;
+  const linhas = produtos ?? [{ titulo, composicao, quantidade, precoUnitario }];
+  if (!Array.isArray(linhas) || !linhas.length) throw new Error('Adicione ao menos um produto ao orçamento.');
+  const detalhes = [];
+  const quantidadesInsumos = new Map();
+  let total = 0;
+  for (const linha of linhas) {
+    const nome = String(linha.titulo ?? linha.nome ?? '').trim();
+    const unidades = Number(linha.quantidade);
+    const preco = Number(linha.precoUnitario);
+    if (!nome) throw new Error('Informe o nome ou descrição que será exibido no orçamento.');
+    if (!Number.isInteger(unidades) || unidades < 1) {
+      throw new Error('A quantidade do produto deve ser um número inteiro maior que zero.');
+    }
+    if (!Number.isFinite(preco) || preco < 0) throw new Error('Informe um preço unitário válido.');
+    if (!Array.isArray(linha.composicao) || !linha.composicao.length) {
+      throw new Error(`O produto "${nome}" não tem uma composição válida.`);
+    }
+
+    const subtotal = Math.round(preco * unidades * 100) / 100;
+    total += subtotal;
+    const insumos = [];
+    for (const item of linha.composicao) {
+      const insumoId = Number(item.insumo_id);
+      const qtd = Number(item.quantidade);
+      if (!Number.isInteger(insumoId) || !Number.isFinite(qtd) || qtd <= 0) {
+        throw new Error(`A composição de "${nome}" contém um insumo inválido.`);
+      }
+      quantidadesInsumos.set(insumoId, (quantidadesInsumos.get(insumoId) || 0) + qtd * unidades);
+      insumos.push({
+        nome: item.nome,
+        quantidade: qtd * unidades,
+        unidade: item.unidade || '',
+      });
+    }
+    detalhes.push({
+      produto_id: linha.produtoId ?? null,
+      nome,
+      quantidade: unidades,
+      precoUnitario: preco,
+      subtotal,
+      insumos,
+    });
+  }
+  total = Math.round(total * 100) / 100;
   if (entrada > total) throw new Error('O sinal não pode ser maior que o total do orçamento.');
-  const itens = criarItensOS(composicao, unidades);
-  const detalhes = [{
-    nome,
-    quantidade: unidades,
-    precoUnitario: preco,
-    subtotal: total,
-    insumos: composicao.map((item) => ({
-      nome: item.nome,
-      quantidade: item.quantidade * unidades,
-      unidade: item.unidade,
-    })),
-  }];
+  const itens = [...quantidadesInsumos].map(([insumo_id, quantidade]) => ({ insumo_id, quantidade }));
+  const nomeOrcamento = typeof titulo === 'string' && titulo.trim()
+    ? titulo.trim()
+    : detalhes.length === 1
+      ? detalhes[0].nome
+      : `Orçamento: ${detalhes.map((item) => `${item.quantidade} × ${item.nome}`).join(' + ')}`;
   return {
-    titulo: nome,
-    quantidade: unidades,
+    titulo: nomeOrcamento,
+    quantidade: detalhes.reduce((quantidadeTotal, item) => quantidadeTotal + item.quantidade, 0),
     itens,
     detalhes,
     valor_total: total,
