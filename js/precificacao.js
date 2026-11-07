@@ -1,3 +1,5 @@
+import { agendarSincronizacao } from './db.js';
+
 /**
  * precificacao.js — Motor de cálculo da precificação do ateliê.
  *
@@ -74,9 +76,11 @@ export async function descontarEstoque(db, itens = []) {
       await db.insumos.update(item.insumo_id, {
         quantidade: novaQtd,
         synced: 0, // marca para sync
+        atualizado_em: new Date().toISOString(),
       });
     }
   });
+  agendarSincronizacao();
 }
 
 /**
@@ -90,9 +94,11 @@ export async function estornarEstoque(db, itens = []) {
       await db.insumos.update(item.insumo_id, {
         quantidade: (insumo.quantidade || 0) + (item.quantidade || 0),
         synced: 0,
+        atualizado_em: new Date().toISOString(),
       });
     }
   });
+  agendarSincronizacao();
 }
 
 function arred(v) {

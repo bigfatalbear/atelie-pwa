@@ -1,11 +1,13 @@
 /**
  * app.js — Inicialização, navegação e interfaces (Insumos, Precificação, Nova OS)
  */
-import { db, salvar, sincronizar, SUPABASE_URL } from './db.js';
+import { db, salvar } from './db.js';
+import { conectarDrive, lerConfiguracaoDrive, sincronizarDrive } from './google-drive.js';
 import { calcularPrecoVenda, brl } from './precificacao.js';
 import { renderKanban, novaOS, COLUNAS } from './kanban.js';
 
 const $ = (sel) => document.querySelector(sel);
+let driveConexaoEmAndamento = false;
 
 // ============================================================
 // INICIALIZAÇÃO
@@ -17,6 +19,8 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
 
 document.addEventListener('DOMContentLoaded', async () => {
   configurarTabs();
+  configurarGoogleDrive();
+  window.addEventListener('render-financeiro', renderFinanceiro);
   renderFinanceiro();
   await renderKanban();
   await renderInsumos();
@@ -27,11 +31,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('#form-insumo')?.addEventListener('submit', aoCadastrarInsumo);
   $('#form-os')?.addEventListener('submit', aoCadastrarOS);
   $('#form-calc')?.addEventListener('input', calcularPreview);
-  $('#btn-sync')?.addEventListener('click', async () => {
-    const r = await sincronizar();
-    alertSync(r);
-  });
-
   // Selo online/offline
   atualizarSelo();
   window.addEventListener('online', atualizarSelo);
@@ -43,15 +42,110 @@ function atualizarSelo() {
   if (!selo) return;
   const on = navigator.onLine;
   selo.textContent = on ? '🟢 Online' : '🔴 Offline';
-  selo.title = SUPABASE_URL.includes('SEU_PROJETO')
-    ? 'Supabase não configurado — dados salvos apenas localmente'
-    : 'Clique para sincronizar';
+  selo.title = on ? 'Conexão com a internet disponível' : 'Dados continuam salvos neste dispositivo';
 }
 
-function alertSync(r) {
-  if (r.ok && r.enviados) alert(`✅ ${r.enviados} registro(s) sincronizado(s) com o Supabase.`);
-  else if (r.ok) alert('Tudo já estava sincronizado.');
-  else alert(`⚠️ Falha no sync: ${r.motivo || r.erros?.map?.((e) => e.erro).join('; ') || 'verifique credenciais.'}`);
+function configurarGoogleDrive() {
+  const config = lerConfiguracaoDrive();
+  if (config) {
+    $('#drive-client-id').value = config.clientId || '';
+    $('#drive-folder-url').value = config.folderUrl || '';
+    definirStatusDrive('Dados locais preservados. Conecte-se para verificar a planilha no Drive.');
+  } else {
+    definirStatusDrive('Os dados ficam neste dispositivo até você conectar uma pasta do Google Drive.');
+  }
+
+  $('#btn-sync')?.addEventListener('click', () => conectarEAtualizar());
+  $('#btn-drive-conectar')?.addEventListener('click', () => conectarEAtualizar());
+  document.querySelectorAll('[data-drive-resolution]').forEach((button) => {
+    button.addEventListener('click', () => conectarEAtualizar(button.dataset.driveResolution));
+  });
+
+  let timer;
+  const sincronizarAutomaticamente = () => {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      if (!navigator.onLine) {
+        definirStatusDrive('Sem internet. As alterações foram salvas neste dispositivo e serão sincronizadas ao reconectar.');
+        return;
+      }
+      try {
+        const resultado = await sincronizarDrive();
+        if (!resultado.ok && resultado.motivo?.startsWith('Conecte-se ao Google Drive')) {
+          definirStatusDrive('Alterações salvas localmente. Conecte-se ao Google Drive para sincronizá-las.');
+          return;
+        }
+        await mostrarResultadoDrive(resultado);
+      } catch (error) {
+        definirStatusDrive(`Falha na sincronização automática: ${error.message}`, true);
+      }
+    }, 800);
+  };
+  window.addEventListener('drive-sync-requested', sincronizarAutomaticamente);
+  window.addEventListener('online', sincronizarAutomaticamente);
+}
+
+async function conectarEAtualizar(resolution = null) {
+  if (driveConexaoEmAndamento) return;
+  driveConexaoEmAndamento = true;
+  const buttons = [...document.querySelectorAll('#btn-sync, #btn-drive-conectar, [data-drive-resolution]')];
+  buttons.forEach((button) => { button.disabled = true; });
+  definirStatusDrive('Conectando ao Google Drive e verificando os dados…');
+  try {
+    const resultado = await conectarDrive({
+      clientId: $('#drive-client-id').value,
+      folderUrl: $('#drive-folder-url').value,
+      resolution,
+    });
+    await mostrarResultadoDrive(resultado);
+  } catch (error) {
+    definirStatusDrive(`Não foi possível sincronizar: ${error.message}`, true);
+  } finally {
+    buttons.forEach((button) => { button.disabled = false; });
+    driveConexaoEmAndamento = false;
+  }
+}
+
+function definirStatusDrive(message, error = false) {
+  const status = $('#drive-status');
+  if (!status) return;
+  status.textContent = message;
+  status.classList.toggle('text-red-600', error);
+  status.classList.toggle('text-slate-600', !error);
+}
+
+async function mostrarResultadoDrive(resultado) {
+  const choices = $('#drive-resolution');
+  if (resultado.precisaEscolha) {
+    choices?.classList.remove('hidden');
+    choices?.classList.add('flex');
+    definirStatusDrive(
+      `Há dados diferentes nos dois lugares (${resultado.registrosLocais} locais e ${resultado.registrosDrive} na planilha). Escolha qual versão manter; um backup será criado no Drive antes da substituição.`
+    );
+    return;
+  }
+  choices?.classList.add('hidden');
+  choices?.classList.remove('flex');
+  if (!resultado.ok) {
+    definirStatusDrive(resultado.motivo || 'A sincronização não foi concluída.', true);
+    return;
+  }
+  const mensagens = {
+    importado: `${resultado.registros} registro(s) carregado(s) da planilha do Google Drive.`,
+    enviado: `${resultado.registros} registro(s) salvo(s) na planilha do Google Drive.`,
+    atualizado: `${resultado.registros} registro(s) conferidos. Dados locais e do Drive estão iguais.`,
+  };
+  definirStatusDrive(mensagens[resultado.acao] || 'Sincronização concluída.');
+  if (resultado.acao === 'importado') {
+    await Promise.all([
+      renderKanban(),
+      renderFinanceiro(),
+      renderInsumos(),
+      renderCalcInsumos(),
+      renderSelectInsumos(),
+      renderClientes(),
+    ]);
+  }
 }
 
 // ============================================================
@@ -215,8 +309,6 @@ async function renderFinanceiro() {
         <p class="text-xl font-bold text-amber-600 tabular-nums">${brl(pendente)}</p>
       </div>
     </div>`;
-  // Atualiza também quando o Kanban muda
-  window.addEventListener('render-financeiro', renderFinanceiro);
 }
 
 // ============================================================

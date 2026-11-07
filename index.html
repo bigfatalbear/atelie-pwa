@@ -28,7 +28,7 @@
         <span>Ateliê Manager</span>
       </h1>
       <div class="flex items-center gap-3">
-        <button id="btn-sync" class="text-xs bg-slate-700 hover:bg-slate-600 rounded-full px-3 py-1" title="Sincronizar com Supabase">⭳ Sync</button>
+        <button id="btn-sync" class="text-xs bg-slate-700 hover:bg-slate-600 rounded-full px-3 py-1" title="Conectar e sincronizar com Google Drive">⭳ Drive</button>
         <span id="selo-sync" class="text-xs font-mono">🟢 Online</span>
       </div>
     </div>
@@ -42,6 +42,41 @@
   </header>
 
   <main class="max-w-6xl mx-auto p-4 pb-24">
+
+    <!-- ====================== GOOGLE DRIVE ====================== -->
+    <section class="mb-6 bg-white dark:bg-slate-800 rounded-xl shadow p-4 space-y-3 border border-slate-200 dark:border-slate-700" aria-labelledby="drive-heading">
+      <div>
+        <h2 id="drive-heading" class="font-semibold">Armazenamento no Google Drive</h2>
+        <p class="text-sm text-slate-500 mt-1">Os dados são mantidos offline neste dispositivo e sincronizados em uma planilha dentro da pasta escolhida.</p>
+      </div>
+      <div class="grid gap-3 sm:grid-cols-2">
+        <label class="text-sm">ID do cliente OAuth do Google
+          <input id="drive-client-id" class="input mt-1" autocomplete="off" placeholder="...apps.googleusercontent.com">
+        </label>
+        <label class="text-sm">Link da pasta do Google Drive
+          <input id="drive-folder-url" class="input mt-1" type="url" autocomplete="url" placeholder="https://drive.google.com/drive/folders/..." required>
+        </label>
+      </div>
+      <p class="text-xs text-slate-500">O ID OAuth é público (não cole segredos). A autorização é solicitada pelo Google e o token fica apenas na memória desta sessão.</p>
+      <details class="text-sm text-slate-600 dark:text-slate-300">
+        <summary class="cursor-pointer font-medium">Como configurar o acesso no Google Cloud</summary>
+        <ol class="list-decimal pl-5 pt-2 space-y-1">
+          <li>No Google Cloud Console, selecione ou crie um projeto e habilite <strong>Google Drive API</strong> e <strong>Google Sheets API</strong>.</li>
+          <li>Configure a tela de consentimento OAuth e, se o app estiver em modo de teste, adicione sua conta Google como usuária de teste.</li>
+          <li>Crie uma credencial OAuth do tipo <strong>Aplicativo da Web</strong>; em “Origens JavaScript autorizadas”, cadastre a origem HTTPS onde este app está publicado (e <code>http://localhost</code> para desenvolvimento local).</li>
+          <li>Copie o ID do cliente OAuth para o campo acima. Não use nem compartilhe um client secret.</li>
+          <li>Crie/abra uma pasta no Drive da mesma conta Google e cole aqui o link. O app criará nela a planilha “Atelie Manager”.</li>
+        </ol>
+      </details>
+      <div class="flex flex-wrap gap-2">
+        <button id="btn-drive-conectar" type="button" class="btn-primario">Conectar e sincronizar</button>
+        <div id="drive-resolution" class="hidden flex-wrap gap-2">
+          <button type="button" data-drive-resolution="drive" class="rounded-lg bg-sky-700 hover:bg-sky-600 text-white px-3 py-2 text-sm">Usar dados da planilha</button>
+          <button type="button" data-drive-resolution="device" class="rounded-lg bg-amber-600 hover:bg-amber-500 text-white px-3 py-2 text-sm">Usar dados deste dispositivo</button>
+        </div>
+      </div>
+      <p id="drive-status" class="text-sm text-slate-600" role="status" aria-live="polite"></p>
+    </section>
 
     <!-- ====================== PÁGINA: KANBAN ====================== -->
     <section data-page="kanban">
@@ -130,12 +165,11 @@
   </main>
 
   <footer class="text-center text-xs text-slate-400 pb-6">
-    Ateliê Manager · PWA offline-first (Dexie.js + Supabase) · v1.0
+    Ateliê Manager · PWA offline-first (Dexie.js + Google Drive) · v1.0
   </footer>
 
   <!-- SDKs -->
   <script src="https://cdn.jsdelivr.net/npm/dexie@4.0.8/dist/dexie.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>
