@@ -13,9 +13,11 @@ export async function novaOS(dados) {
   const id = await salvar('ordens_servico', {
     titulo: dados.titulo,
     cliente_id: dados.cliente_id ?? null,
+    ...(dados.produto_id ? { produto_id: dados.produto_id } : {}),
     descricao: dados.descricao ?? '',
     itens: JSON.stringify(dados.itens ?? []),   // [{insumo_id, quantidade}]
     ...(dados.orcamento_detalhes ? { orcamento_detalhes: dados.orcamento_detalhes } : {}),
+    ...(dados.mensagem_adicional ? { mensagem_adicional: dados.mensagem_adicional } : {}),
     valor_total: dados.valor_total ?? 0,
     sinal: dados.sinal ?? 0,                   // Sinal pago na aprovação
     saldo: (dados.valor_total ?? 0) - (dados.sinal ?? 0), // Saldo devedor na entrega
@@ -153,6 +155,7 @@ function criarAcaoWhatsapp(os, cliente) {
       valorTotal: os.valor_total,
       sinal: os.sinal,
       detalhes: lerDetalhesOrcamento(os.orcamento_detalhes),
+      observacao: os.mensagem_adicional || '',
     });
     const href = criarLinkWhatsapp(cliente.telefone, mensagem);
     return `<a class="text-xs bg-emerald-700 hover:bg-emerald-600 text-white rounded px-2 py-1" href="${escaparHtml(href)}" target="_blank" rel="noopener noreferrer" aria-label="Revisar orçamento de ${escaparHtml(cliente.nome)} no WhatsApp">Revisar no WhatsApp</a>`;

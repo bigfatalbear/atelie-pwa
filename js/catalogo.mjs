@@ -62,3 +62,40 @@ export function criarItensOS(composicao, unidades = 1) {
     quantidade: item.quantidade * quantidade,
   }));
 }
+
+export function criarRascunhoOrcamento({ titulo, composicao, quantidade, precoUnitario, sinal = 0 }) {
+  const nome = String(titulo ?? '').trim();
+  const unidades = Number(quantidade);
+  const preco = Number(precoUnitario);
+  const entrada = Number(sinal);
+  if (!nome) throw new Error('Informe o nome ou descrição que será exibido no orçamento.');
+  if (!Number.isInteger(unidades) || unidades < 1) {
+    throw new Error('A quantidade do produto deve ser um número inteiro maior que zero.');
+  }
+  if (!Number.isFinite(preco) || preco < 0) throw new Error('Informe um preço unitário válido.');
+  if (!Number.isFinite(entrada) || entrada < 0) throw new Error('Informe um sinal válido.');
+
+  const total = Math.round(preco * unidades * 100) / 100;
+  if (entrada > total) throw new Error('O sinal não pode ser maior que o total do orçamento.');
+  const itens = criarItensOS(composicao, unidades);
+  const detalhes = [{
+    nome,
+    quantidade: unidades,
+    precoUnitario: preco,
+    subtotal: total,
+    insumos: composicao.map((item) => ({
+      nome: item.nome,
+      quantidade: item.quantidade * unidades,
+      unidade: item.unidade,
+    })),
+  }];
+  return {
+    titulo: nome,
+    quantidade: unidades,
+    itens,
+    detalhes,
+    valor_total: total,
+    sinal: entrada,
+    saldo: total - entrada,
+  };
+}

@@ -31,6 +31,7 @@ test('gera link click-to-chat com mensagem e valores detalhados do orçamento', 
       subtotal: 1250,
       insumos: [{ nome: 'Papel especial', quantidade: 4, unidade: 'folhas' }],
     }],
+    observacao: 'Prazo de produção: 7 dias úteis.',
   });
   const url = new URL(criarLinkWhatsapp('(11) 99999-1234', mensagem));
 
@@ -41,4 +42,5 @@ test('gera link click-to-chat com mensagem e valores detalhados do orçamento', 
   assert.match(url.searchParams.get('text'), /Saldo restante: R\$\s*1\.000,00/);
   assert.match(url.searchParams.get('text'), /Convite personalizado — 2 × R\$\s*625,00 = R\$\s*1\.250,00/);
   assert.match(url.searchParams.get('text'), /Papel especial: 4 folhas/);
+  assert.match(url.searchParams.get('text'), /Prazo de produção: 7 dias úteis\./);
 });

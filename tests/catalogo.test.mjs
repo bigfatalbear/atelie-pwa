@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   calcularCustoFicha,
   criarItensOS,
+  criarRascunhoOrcamento,
   lerComposicaoFicha,
 } from '../js/catalogo.mjs';
 
@@ -50,4 +51,32 @@ test('valida ficha técnica, insumos removidos e quantidade para orçamento', ()
   assert.deepEqual(criarItensOS([{ insumo_id: 1, quantidade: 2 }], 3), [
     { insumo_id: 1, quantidade: 6 },
   ]);
+});
+
+test('cria orçamento customizado mantendo preço, sinal e composição escalada', () => {
+  const rascunho = criarRascunhoOrcamento({
+    titulo: 'Álbum com capa personalizada',
+    composicao: [{ insumo_id: 1, quantidade: 2, nome: 'Papel', unidade: 'folhas' }],
+    quantidade: 3,
+    precoUnitario: 45.5,
+    sinal: 20,
+  });
+
+  assert.equal(rascunho.titulo, 'Álbum com capa personalizada');
+  assert.equal(rascunho.valor_total, 136.5);
+  assert.equal(rascunho.sinal, 20);
+  assert.equal(rascunho.saldo, 116.5);
+  assert.deepEqual(rascunho.itens, [{ insumo_id: 1, quantidade: 6 }]);
+  assert.equal(rascunho.detalhes[0].precoUnitario, 45.5);
+  assert.equal(rascunho.detalhes[0].insumos[0].quantidade, 6);
+});
+
+test('rejeita orçamento com sinal acima do preço ajustado pelo usuário', () => {
+  assert.throws(() => criarRascunhoOrcamento({
+    titulo: 'Caderno',
+    composicao: [{ insumo_id: 1, quantidade: 1 }],
+    quantidade: 1,
+    precoUnitario: 50,
+    sinal: 51,
+  }), /sinal não pode ser maior/);
 });

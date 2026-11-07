@@ -15,7 +15,14 @@ export function criarLinkWhatsapp(telefone, mensagem = '') {
   return mensagem ? `${url}?text=${encodeURIComponent(mensagem)}` : url;
 }
 
-export function montarMensagemOrcamento({ cliente, titulo, valorTotal, sinal, detalhes = [] }) {
+export function montarMensagemOrcamento({
+  cliente,
+  titulo,
+  valorTotal,
+  sinal,
+  detalhes = [],
+  observacao = '',
+}) {
   const total = Math.max(0, Number(valorTotal) || 0);
   const entrada = Math.max(0, Number(sinal) || 0);
   const saldo = Math.max(0, total - entrada);
@@ -41,6 +48,7 @@ export function montarMensagemOrcamento({ cliente, titulo, valorTotal, sinal, de
     `Valor total: ${moedaBRL.format(total)}`,
     `Sinal: ${moedaBRL.format(entrada)}`,
     `Saldo restante: ${moedaBRL.format(saldo)}`,
+    ...(String(observacao).trim() ? ['', String(observacao).trim()] : []),
     '',
     'Se estiver de acordo, me avise por aqui.',
   ].join('\n');
