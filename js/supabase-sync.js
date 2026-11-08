@@ -16,6 +16,7 @@ let client = null;
 let currentUser = null;
 let activeConfig = null;
 let syncQueue = Promise.resolve();
+let passwordRecoveryPending = false;
 
 export function lerConfiguracaoSupabase() {
   try {
@@ -48,10 +49,11 @@ export function configurarSupabase(url, anonKey) {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
   });
   activeConfig = { url: projectUrl, anonKey: publicKey };
-  client.auth.onAuthStateChange((_event, session) => {
+  client.auth.onAuthStateChange((event, session) => {
     currentUser = session?.user || null;
+    if (event === 'PASSWORD_RECOVERY') passwordRecoveryPending = true;
     window.dispatchEvent(new CustomEvent('supabase-auth-changed', {
-      detail: { user: currentUser ? { email: currentUser.email } : null },
+      detail: { user: currentUser ? { email: currentUser.email } : null, event },
     }));
   });
   return client;
@@ -88,6 +90,25 @@ export async function reenviarConfirmacaoConta(email) {
   const supabase = exigirCliente();
   const { error } = await supabase.auth.resend({ type: 'signup', email: email.trim() });
   if (error) throw error;
+}
+
+export async function solicitarRecuperacaoSenha(email) {
+  const supabase = exigirCliente();
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+    redirectTo: `${window.location.origin}${window.location.pathname}`,
+  });
+  if (error) throw error;
+}
+
+export async function atualizarSenhaConta(password) {
+  const supabase = exigirCliente();
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) throw error;
+  passwordRecoveryPending = false;
+}
+
+export function estaEmRecuperacaoSenha() {
+  return passwordRecoveryPending;
 }
 
 export async function entrarConta(email, password) {

@@ -5,7 +5,7 @@
  *   - Navegação: network-first com fallback ao cache (permite uso 100% offline)
  *   - Demais requisições: network-first
  */
-const CACHE_NAME = 'atelie-v9';
+const CACHE_NAME = 'atelie-v11';
 const APP_SHELL = [
   './',
   './index.html',
@@ -32,7 +32,7 @@ const APP_SHELL = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
-      .catch((e) => console.warn('[SW] Falha parcial no pré-cache:', e))
+      .catch((error) => caches.delete(CACHE_NAME).then(() => { throw error; }))
       .then(() => self.skipWaiting())
   );
 });

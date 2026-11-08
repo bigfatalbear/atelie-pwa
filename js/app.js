@@ -4,9 +4,12 @@
 import { agendarSincronizacao, db, remover, salvar } from './db.js';
 import {
   cadastrarConta,
+  atualizarSenhaConta,
+  estaEmRecuperacaoSenha,
   entrarConta,
   reenviarConfirmacaoConta,
   restaurarConfiguracaoSupabase,
+  solicitarRecuperacaoSenha,
   sairConta,
   sincronizarSupabase,
 } from './supabase-sync.js';
@@ -299,7 +302,12 @@ async function configurarSupabaseUI() {
 
   $('#btn-supabase-entrar')?.addEventListener('click', () => autenticarSupabase('login'));
   $('#btn-supabase-criar-conta')?.addEventListener('click', () => autenticarSupabase('signup'));
+  $('#btn-supabase-recuperar-senha')?.addEventListener('click', recuperarSenhaSupabase);
+  $('#form-supabase-nova-senha')?.addEventListener('submit', salvarNovaSenhaSupabase);
   $('#btn-supabase-resend-confirmation')?.addEventListener('click', reenviarEmailConfirmacao);
+  $('#btn-ajude-dev')?.addEventListener('click', () => $('#dialog-ajude-dev')?.showModal());
+  $('#btn-fechar-ajude-dev')?.addEventListener('click', () => $('#dialog-ajude-dev')?.close());
+  $('#btn-copiar-pix')?.addEventListener('click', copiarChavePix);
   $('#auth-toast-dismiss')?.addEventListener('click', () => $('#auth-toast')?.classList.add('hidden'));
   $('#btn-supabase-sair')?.addEventListener('click', desconectarSupabase);
   $('#btn-sync')?.addEventListener('click', () => sincronizarEAtualizar());
@@ -308,12 +316,77 @@ async function configurarSupabaseUI() {
   });
   window.addEventListener('supabase-auth-changed', (event) => {
     atualizarSessaoSupabase(event.detail.user);
+    if (event.detail.event === 'PASSWORD_RECOVERY') mostrarFormularioRecuperacaoSenha();
   });
+  if (estaEmRecuperacaoSenha()) mostrarFormularioRecuperacaoSenha();
   window.addEventListener('supabase-sync-requested', agendarSincronizacaoAutomatica);
   window.addEventListener('online', () => {
     atualizarSelo();
     agendarSincronizacaoAutomatica();
   });
+}
+
+function mostrarFormularioRecuperacaoSenha() {
+  $('#supabase-recovery-password')?.classList.remove('hidden');
+  definirStatusSupabase('Link confirmado. Defina sua nova senha.');
+  $('#supabase-nova-senha')?.focus();
+}
+
+async function recuperarSenhaSupabase() {
+  if (supabaseAcaoEmAndamento) return;
+  const button = $('#btn-supabase-recuperar-senha');
+  const email = $('#supabase-email').value.trim();
+  try {
+    if (!email || !$('#supabase-email').checkValidity()) {
+      throw new Error('Informe um endereço de e-mail válido para receber o link de recuperação.');
+    }
+    supabaseAcaoEmAndamento = true;
+    button.disabled = true;
+    await solicitarRecuperacaoSenha(email);
+    mostrarToastAuth(`Se houver uma conta para ${email}, o Supabase enviará um link de recuperação. Verifique sua caixa de entrada e a pasta de spam.`);
+  } catch (error) {
+    definirStatusSupabase(`Não foi possível solicitar a recuperação de senha: ${error.message}`, true);
+  } finally {
+    button.disabled = false;
+    supabaseAcaoEmAndamento = false;
+  }
+}
+
+async function salvarNovaSenhaSupabase(event) {
+  event.preventDefault();
+  if (supabaseAcaoEmAndamento) return;
+  const password = $('#supabase-nova-senha').value;
+  const confirmation = $('#supabase-confirmar-nova-senha').value;
+  try {
+    if (password.length < 6) throw new Error('A nova senha deve ter pelo menos 6 caracteres.');
+    if (password !== confirmation) throw new Error('As senhas não conferem.');
+    supabaseAcaoEmAndamento = true;
+    $('#btn-supabase-salvar-senha').disabled = true;
+    await atualizarSenhaConta(password);
+    $('#form-supabase-nova-senha').reset();
+    $('#supabase-recovery-password').classList.add('hidden');
+    mostrarToastAuth('Senha atualizada com sucesso. Você já pode entrar com a nova senha.');
+  } catch (error) {
+    definirStatusSupabase(`Não foi possível atualizar a senha: ${error.message}`, true);
+  } finally {
+    $('#btn-supabase-salvar-senha').disabled = false;
+    supabaseAcaoEmAndamento = false;
+  }
+}
+
+async function copiarChavePix() {
+  const campo = $('#pix-copia-cola');
+  const status = $('#pix-status');
+  try {
+    await navigator.clipboard.writeText(campo.value);
+    status.textContent = 'Código Pix copiado. Obrigado pelo apoio!';
+    status.classList.remove('text-red-500');
+  } catch (error) {
+    campo.focus();
+    campo.select();
+    status.textContent = 'Não foi possível copiar automaticamente. Selecione e copie o código Pix manualmente.';
+    status.classList.add('text-red-500');
+  }
 }
 
 function atualizarSessaoSupabase(user) {
