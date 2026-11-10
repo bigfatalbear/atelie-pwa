@@ -24,6 +24,7 @@ import {
   registrarMovimentacoesEstoque,
   validarDadosInsumo,
 } from './estoque.mjs';
+import { configurarFinanceiro, renderFinanceiro } from './financeiro-ui.js';
 
 const $ = (sel) => document.querySelector(sel);
 const CHAVE_IDENTIDADE = 'atelie-identidade-visual';
@@ -58,7 +59,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   configurarTabs();
   configurarIdentidadeVisual();
   await configurarSupabaseUI();
-  window.addEventListener('render-financeiro', renderFinanceiro);
+  configurarFinanceiro();
   renderFinanceiro();
   await renderKanban();
   await renderInsumos();
@@ -76,6 +77,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('#btn-estoque-nova-movimentacao')?.addEventListener('click', () => abrirMovimentacaoEstoque());
   $('#form-movimentacao-estoque')?.addEventListener('submit', aoRegistrarMovimentacaoEstoque);
   $('#mov-tipo')?.addEventListener('change', atualizarCamposMovimentacao);
+  ['#mov-insumo-id', '#mov-quantidade', '#mov-custo', '#mov-financeiro-status'].forEach((selector) => {
+    $(selector)?.addEventListener(selector === '#mov-quantidade' || selector === '#mov-custo' ? 'input' : 'change', atualizarPreviewFinanceiroEstoque);
+  });
   $('#mov-cancelar')?.addEventListener('click', () => $('#dialog-movimentacao-estoque').close());
   $('#lista-insumos')?.addEventListener('click', aoAcionarInsumoEstoque);
   window.addEventListener('estoque-atualizado', atualizarVistasEstoque);
@@ -819,7 +823,7 @@ async function abrirMovimentacaoEstoque(insumoId = null) {
     insumos.sort((a, b) => String(a.nome ?? '').localeCompare(String(b.nome ?? ''), 'pt-BR'));
     const select = $('#mov-insumo-id');
     select.innerHTML = '<option value="">Selecione um insumo</option>' +
-      insumos.map((insumo) => `<option value="${insumo.id}">${escaparHtml(insumo.nome)} · saldo ${formatarQuantidade(insumo.quantidade)} ${escaparHtml(insumo.unidade || '')}</option>`).join('');
+      insumos.map((insumo) => `<option value="${insumo.id}" data-custo="${Number(insumo.custo_unitario) || 0}">${escaparHtml(insumo.nome)} · saldo ${formatarQuantidade(insumo.quantidade)} ${escaparHtml(insumo.unidade || '')}</option>`).join('');
     $('#form-movimentacao-estoque').reset();
     select.value = insumoId ? String(insumoId) : '';
     $('#mov-status').textContent = '';
@@ -836,8 +840,29 @@ function atualizarCamposMovimentacao() {
   const tipo = $('#mov-tipo').value;
   const entrada = tipo === 'entrada';
   $('#mov-custo-label').classList.toggle('hidden', !entrada);
+  $('#mov-financeiro-label').classList.toggle('hidden', !entrada);
   $('#mov-quantidade-label').firstChild.textContent = tipo === 'ajuste' ? 'Novo saldo' : 'Quantidade';
   $('#mov-quantidade').min = tipo === 'ajuste' ? '0' : '0.001';
+  atualizarPreviewFinanceiroEstoque();
+}
+
+function atualizarPreviewFinanceiroEstoque() {
+  const preview = $('#mov-financeiro-total');
+  if (!preview) return;
+  const tipo = $('#mov-tipo').value;
+  const situacao = $('#mov-financeiro-status').value;
+  if (tipo !== 'entrada' || !situacao) {
+    preview.textContent = 'Esta movimentação não criará uma despesa no financeiro.';
+    return;
+  }
+  const quantidade = Number($('#mov-quantidade').value);
+  const opcao = $('#mov-insumo-id').selectedOptions[0];
+  const custoDigitado = $('#mov-custo').value;
+  const custo = custoDigitado === '' ? Number(opcao?.dataset.custo) || 0 : Number(custoDigitado);
+  const total = quantidade > 0 && custo > 0
+    ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(quantidade * custo)
+    : 'informe quantidade e custo';
+  preview.textContent = `${situacao === 'pendente' ? 'Será criada uma conta a pagar' : 'Será registrada como despesa paga'}: ${total}.`;
 }
 
 async function aoRegistrarMovimentacaoEstoque(event) {
@@ -859,6 +884,9 @@ async function aoRegistrarMovimentacaoEstoque(event) {
       quantidade,
       ...(tipo === 'entrada' && $('#mov-custo').value !== ''
         ? { custo_unitario: Number($('#mov-custo').value) }
+        : {}),
+      ...(tipo === 'entrada' && $('#mov-financeiro-status').value
+        ? { financeiro_status: $('#mov-financeiro-status').value }
         : {}),
       motivo,
       origem: 'manual',
@@ -1753,37 +1781,6 @@ async function aoCadastrarOS(e) {
     if (novaAba) novaAba.close();
     definirStatusOS(error.message || 'Não foi possível criar a OS.', true);
   }
-}
-
-// ============================================================
-// FINANCEIRO (Sinal + Saldo Devedor na Entrega)
-// ============================================================
-async function renderFinanceiro() {
-  const painel = $('#financeiro-painel');
-  if (!painel) return;
-  const ordens = await db.ordens_servico.toArray();
-  const sinais = ordens.reduce((s, o) => s + (o.sinal || 0), 0);
-  const prontos = ordens.filter((o) => o.status === 'Pronto');
-  const saldosRecebidos = prontos.reduce((s, o) => s + Math.max(0, (o.valor_total || 0) - (o.sinal || 0)), 0);
-  const pendente = ordens
-    .filter((o) => o.status !== 'Pronto')
-    .reduce((s, o) => s + Math.max(0, (o.valor_total || 0) - (o.sinal || 0)), 0);
-
-  painel.innerHTML = `
-    <div class="grid gap-3 sm:grid-cols-3 text-center">
-      <div class="bg-emerald-50 dark:bg-emerald-900/30 rounded-lg p-3">
-        <p class="text-xs uppercase text-slate-500">Sinais recebidos</p>
-        <p class="text-xl font-bold text-emerald-600 tabular-nums">${brl(sinais)}</p>
-      </div>
-      <div class="bg-sky-50 dark:bg-sky-900/30 rounded-lg p-3">
-        <p class="text-xs uppercase text-slate-500">Saldos recebidos (entregues)</p>
-        <p class="text-xl font-bold text-sky-600 tabular-nums">${brl(saldosRecebidos)}</p>
-      </div>
-      <div class="bg-amber-50 dark:bg-amber-900/30 rounded-lg p-3">
-        <p class="text-xs uppercase text-slate-500">Saldo devedor em aberto</p>
-        <p class="text-xl font-bold text-amber-600 tabular-nums">${brl(pendente)}</p>
-      </div>
-    </div>`;
 }
 
 // ============================================================

@@ -114,7 +114,7 @@ test('persiste saldo e histórico juntos, calculando custo médio na entrada de 
   const db = {
     insumos: insumosTable,
     movimentacoes_estoque: movimentosTable,
-    transaction: async (_mode, _insumos, _movimentacoes, callback) => callback(),
+    transaction: async (...args) => args.at(-1)(),
   };
 
   await registrarMovimentacoesEstoque(db, [{
@@ -131,4 +131,60 @@ test('persiste saldo e histórico juntos, calculando custo médio na entrada de 
   assert.equal(movimentos[0].saldo_anterior, 10);
   assert.equal(movimentos[0].saldo_posterior, 15);
   assert.equal(movimentos[0].motivo, 'Reposição');
+});
+
+test('registra compra de estoque como despesa no mesmo fluxo transacional', async () => {
+  const registros = new Map([[1, {
+    id: 1,
+    nome: 'Papel',
+    quantidade: 10,
+    custo_unitario: 2,
+  }]]);
+  const movimentos = [];
+  const despesas = [];
+  const db = {
+    insumos: {
+      get: async (id) => registros.get(id),
+      update: async (id, dados) => registros.set(id, { ...registros.get(id), ...dados }),
+    },
+    movimentacoes_estoque: {
+      add: async (movimento) => {
+        const id = movimentos.length + 1;
+        movimentos.push({ ...movimento, id });
+        return id;
+      },
+    },
+    financeiro_lancamentos: {
+      add: async (lancamento) => {
+        despesas.push(lancamento);
+        return despesas.length;
+      },
+    },
+    transaction: async (...args) => args.at(-1)(),
+  };
+
+  await registrarMovimentacoesEstoque(db, [{
+    insumo_id: 1,
+    tipo: 'entrada',
+    quantidade: 3,
+    custo_unitario: 4.5,
+    financeiro_status: 'pendente',
+    motivo: 'Compra para produção',
+  }]);
+
+  assert.equal(registros.get(1).quantidade, 13);
+  assert.equal(movimentos.length, 1);
+  assert.equal(despesas.length, 1);
+  assert.equal(despesas[0].tipo, 'saida');
+  assert.equal(despesas[0].status, 'pendente');
+  assert.equal(despesas[0].valor_centavos, 1350);
+  assert.equal(despesas[0].insumo_id, 1);
+  assert.equal(despesas[0].estoque_movimento_id, 1);
+
+  await assert.rejects(registrarMovimentacoesEstoque(db, [{
+    insumo_id: 1,
+    tipo: 'entrada',
+    quantidade: 1,
+    financeiro_status: 'ignorar',
+  }]), /situação financeira válida/);
 });

@@ -154,6 +154,11 @@ function snapshotVazio(snapshot) {
   return TABELAS.every((tabela) => snapshot[tabela].length === 0);
 }
 
+function snapshotSemLancamentosFinanceiros(snapshot) {
+  const { financeiro_lancamentos, ...legado } = snapshot;
+  return legado;
+}
+
 function ordenarJson(value) {
   if (Array.isArray(value)) return `[${value.map(ordenarJson).join(',')}]`;
   if (value && typeof value === 'object') {
@@ -171,7 +176,9 @@ async function hashSnapshot(snapshot) {
 function normalizarSnapshot(snapshot) {
   const normalized = {};
   for (const tabela of TABELAS) {
-    const records = snapshot?.[tabela] ?? (tabela === 'movimentacoes_estoque' ? [] : undefined);
+    const records = snapshot?.[tabela] ?? (
+      ['movimentacoes_estoque', 'financeiro_lancamentos'].includes(tabela) ? [] : undefined
+    );
     if (!Array.isArray(records)) throw new Error(`O snapshot Supabase não contém uma lista válida para "${tabela}".`);
     normalized[tabela] = records.map((record) => {
       if (!record || typeof record !== 'object' || Array.isArray(record) || !Number.isFinite(Number(record.id))) {
@@ -303,6 +310,27 @@ async function executarSincronizacao(resolution) {
   if (localHash === remoteHash) {
     salvarBaseline(user.id, localHash);
     return { ok: true, action: 'synced', count: contar(local) };
+  }
+
+  if (previousHash) {
+    const [localLegacyHash, remoteLegacyHash] = await Promise.all([
+      hashSnapshot(snapshotSemLancamentosFinanceiros(local)),
+      hashSnapshot(snapshotSemLancamentosFinanceiros(remote)),
+    ]);
+    if (localLegacyHash === previousHash && remoteLegacyHash === previousHash) {
+      const localFinanceiro = local.financeiro_lancamentos;
+      const remotoFinanceiro = remote.financeiro_lancamentos;
+      if (localFinanceiro.length > 0 && remotoFinanceiro.length === 0) {
+        await gravarSnapshotRemoto(user.id, local);
+        salvarBaseline(user.id, localHash);
+        return { ok: true, action: 'uploaded', count: contar(local) };
+      }
+      if (localFinanceiro.length === 0 && remotoFinanceiro.length > 0) {
+        await substituirSnapshotLocal(remote);
+        salvarBaseline(user.id, remoteHash);
+        return { ok: true, action: 'imported', count: contar(remote) };
+      }
+    }
   }
 
   if (previousHash && previousHash === localHash) {

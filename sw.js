@@ -5,7 +5,7 @@
  *   - Navegação: network-first com fallback ao cache (permite uso 100% offline)
  *   - Demais requisições: network-first
  */
-const CACHE_NAME = 'atelie-v11';
+const CACHE_NAME = 'atelie-v12';
 const APP_SHELL = [
   './',
   './index.html',
@@ -22,6 +22,8 @@ const APP_SHELL = [
   './js/catalogo.mjs',
   './js/kanban.js',
   './js/whatsapp.mjs',
+  './js/financeiro.mjs',
+  './js/financeiro-ui.js',
   // CDNs do app congelados no cache para uso offline
   'https://cdn.tailwindcss.com',
   'https://cdn.jsdelivr.net/npm/dexie@4.0.8/dist/dexie.min.js',
