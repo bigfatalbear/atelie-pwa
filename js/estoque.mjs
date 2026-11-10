@@ -106,7 +106,18 @@ export async function criarInsumoComEstoque(db, dados) {
 }
 
 export async function registrarMovimentacoesEstoque(db, movimentacoes) {
-  return db.transaction('rw', db.insumos, db.movimentacoes_estoque, async () => {
+  for (const item of movimentacoes) {
+    if (item.tipo === 'entrada'
+      && item.financeiro_status != null
+      && !['', 'pago', 'pendente'].includes(item.financeiro_status)) {
+      throw new Error('Selecione uma situação financeira válida para a compra.');
+    }
+  }
+  const registraDespesas = movimentacoes.some((item) =>
+    item.tipo === 'entrada' && ['pago', 'pendente'].includes(item.financeiro_status));
+  const tabelas = [db.insumos, db.movimentacoes_estoque];
+  if (registraDespesas) tabelas.push(db.financeiro_lancamentos);
+  return db.transaction('rw', ...tabelas, async () => {
     const criadas = [];
     for (const dados of movimentacoes) {
       const insumo = await db.insumos.get(Number(dados.insumo_id));
@@ -154,6 +165,31 @@ export async function registrarMovimentacoesEstoque(db, movimentacoes) {
         synced: 0,
         atualizado_em: agora,
       });
+      if (dados.tipo === 'entrada' && ['pago', 'pendente'].includes(dados.financeiro_status)) {
+        const agoraLocal = new Date();
+        const data = `${agoraLocal.getFullYear()}-${String(agoraLocal.getMonth() + 1).padStart(2, '0')}-${String(agoraLocal.getDate()).padStart(2, '0')}`;
+        const valor_centavos = Math.round((variacao * custoEntrada + Number.EPSILON) * 100);
+        if (!Number.isSafeInteger(valor_centavos) || valor_centavos <= 0) {
+          throw new Error('O valor total da compra deve ser maior que zero e caber no financeiro.');
+        }
+        await db.financeiro_lancamentos.add({
+          tipo: 'saida',
+          status: dados.financeiro_status,
+          valor_centavos,
+          descricao: `Compra de ${insumo.nome}`,
+          categoria: 'Insumos',
+          data,
+          vencimento: data,
+          forma_pagamento: '',
+          insumo_id: insumo.id,
+          estoque_movimento_id: movimentoId,
+          observacao: movimento.motivo,
+          origem: 'estoque',
+          criado_em: agora,
+          atualizado_em: agora,
+          synced: 0,
+        });
+      }
       criadas.push({ ...movimento, id: movimentoId });
     }
     return criadas;

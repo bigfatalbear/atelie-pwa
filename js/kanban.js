@@ -2,15 +2,18 @@
  * kanban.js — Gestão do quadro Kanban de Ordens de Serviço
  * Colunas: Orçamento → Arte Aprovada → Aguardando Insumo → Em Produção → Pronto
  */
-import { db, salvar, remover } from './db.js';
+import { agendarSincronizacao, db, salvar, remover } from './db.js';
 import { descontarEstoque, estornarEstoque, brl } from './precificacao.js';
 import { criarLinkWhatsapp, montarMensagemOrcamento } from './whatsapp.mjs';
+import { calcularSaldoOrdemCentavos, paraCentavos } from './financeiro.mjs';
 
 export const COLUNAS = ['Orçamento', 'Arte Aprovada', 'Aguardando Insumo', 'Em Produção', 'Pronto'];
 
 /** Cria uma nova OS na coluna "Orçamento" */
 export async function novaOS(dados) {
-  const id = await salvar('ordens_servico', {
+  const agora = new Date();
+  const agoraIso = agora.toISOString();
+  const criadoEm = {
     titulo: dados.titulo,
     cliente_id: dados.cliente_id ?? null,
     ...(dados.produto_id ? { produto_id: dados.produto_id } : {}),
@@ -22,8 +25,37 @@ export async function novaOS(dados) {
     sinal: dados.sinal ?? 0,                   // Sinal pago na aprovação
     saldo: (dados.valor_total ?? 0) - (dados.sinal ?? 0), // Saldo devedor na entrega
     status: 'Orçamento',
-    criado_em: new Date().toISOString(),
+    criado_em: agoraIso,
+    atualizado_em: agoraIso,
+    synced: 0,
+  };
+  const sinalCentavos = paraCentavos(dados.sinal ?? 0);
+  const data = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}-${String(agora.getDate()).padStart(2, '0')}`;
+  const id = await db.transaction('rw', db.ordens_servico, db.financeiro_lancamentos, async () => {
+    const ordemId = await db.ordens_servico.add(criadoEm);
+    if (sinalCentavos > 0) {
+      await db.financeiro_lancamentos.add({
+        tipo: 'entrada',
+        status: 'recebido',
+        valor_centavos: sinalCentavos,
+        descricao: `Sinal · ${dados.titulo || `OS #${ordemId}`}`,
+        categoria: 'Sinal de OS',
+        data,
+        vencimento: null,
+        forma_pagamento: '',
+        os_id: Number(ordemId),
+        cliente_id: dados.cliente_id ?? null,
+        observacao: '',
+        origem: 'sinal-os',
+        criado_em: agoraIso,
+        atualizado_em: agoraIso,
+        synced: 0,
+      });
+    }
+    return ordemId;
   });
+  agendarSincronizacao();
+  window.dispatchEvent(new CustomEvent('render-financeiro'));
   await renderKanban();
   return id;
 }
@@ -40,11 +72,17 @@ export async function moverOS(id, novoStatus) {
     await descontarEstoque(db, itens, os.id);
   }
   // Se SAIR de "Em Produção" (cancelamento / voltar): estorna
-  if (os.status === 'Em Produção' && novoStatus !== 'Em Produção') {
+  if (os.status === 'Em Produção' && novoStatus !== 'Em Produção' && novoStatus !== 'Pronto') {
     await estornarEstoque(db, itens, os.id);
   }
 
+  if (novoStatus === 'Pronto') {
+    await entregarOS(id);
+    return;
+  }
+
   await salvar('ordens_servico', { ...os, status: novoStatus });
+  window.dispatchEvent(new CustomEvent('render-financeiro'));
   await renderKanban();
 }
 
@@ -58,23 +96,51 @@ export async function excluirOS(id) {
     await estornarEstoque(db, itens, os.id);
   }
   await remover('ordens_servico', id);
+  window.dispatchEvent(new CustomEvent('render-financeiro'));
   await renderKanban();
 }
 
 /** Registra entrega: valida saldo devedor e lança entrada no financeiro */
 export async function entregarOS(id) {
-  const os = await db.ordens_servico.get(id);
-  if (!os) return;
-
-  const saldo = Math.max(0, (os.valor_total || 0) - (os.sinal || 0));
-  // Lança o saldo no fluxo de caixa como "entrada" na entrega
-  if (saldo > 0) {
-    await db.transaction('rw', db.ordens_servico, async () => {
-      await salvar('ordens_servico', { ...os, status: 'Pronto', saldo_pago: new Date().toISOString() });
+  const agora = new Date();
+  const agoraIso = agora.toISOString();
+  const data = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}-${String(agora.getDate()).padStart(2, '0')}`;
+  await db.transaction('rw', db.ordens_servico, db.financeiro_lancamentos, async () => {
+    const os = await db.ordens_servico.get(Number(id));
+    if (!os) return;
+    if (os.status === 'Pronto') return;
+    const lancamentos = await db.financeiro_lancamentos.where('os_id').equals(Number(id)).toArray();
+    const saldoCentavos = calcularSaldoOrdemCentavos(os, lancamentos);
+    if (saldoCentavos > 0) {
+      await db.financeiro_lancamentos.add({
+        tipo: 'entrada',
+        status: 'recebido',
+        valor_centavos: saldoCentavos,
+        descricao: `Saldo recebido · ${os.titulo || `OS #${os.id}`}`,
+        categoria: 'Saldo de OS',
+        data,
+        vencimento: null,
+        forma_pagamento: '',
+        os_id: Number(os.id),
+        cliente_id: os.cliente_id ?? null,
+        observacao: '',
+        origem: 'entrega-os',
+        criado_em: agoraIso,
+        atualizado_em: agoraIso,
+        synced: 0,
+      });
+    }
+    await db.ordens_servico.put({
+      ...os,
+      status: 'Pronto',
+      financeiro_rastreado: true,
+      ...(saldoCentavos > 0 ? { saldo_pago: agoraIso } : {}),
+      synced: 0,
+      atualizado_em: agoraIso,
     });
-  } else {
-    await salvar('ordens_servico', { ...os, status: 'Pronto' });
-  }
+  });
+  agendarSincronizacao();
+  window.dispatchEvent(new CustomEvent('render-financeiro'));
   await renderKanban();
 }
 
@@ -83,7 +149,11 @@ export async function renderKanban() {
   const el = document.getElementById('kanban');
   if (!el) return;
 
-  const [ordens, clientes] = await Promise.all([db.ordens_servico.toArray(), db.clientes.toArray()]);
+  const [ordens, clientes, lancamentos] = await Promise.all([
+    db.ordens_servico.toArray(),
+    db.clientes.toArray(),
+    db.financeiro_lancamentos.toArray(),
+  ]);
   const clientMap = Object.fromEntries(clientes.map((c) => [c.id, c]));
 
   el.innerHTML = COLUNAS.map((col) => {
@@ -106,7 +176,7 @@ export async function renderKanban() {
           </span>
         </div>
         <div class="flex flex-col gap-2" data-col="${col}">
-          ${cards.map((o) => cardOS(o, clientMap[o.cliente_id] ?? null)).join('') || '<p class="text-xs text-slate-400 text-center py-4 italic">Vazio</p>'}
+          ${cards.map((o) => cardOS(o, clientMap[o.cliente_id] ?? null, lancamentos)).join('') || '<p class="text-xs text-slate-400 text-center py-4 italic">Vazio</p>'}
         </div>
       </div>`;
   }).join('');
@@ -114,8 +184,10 @@ export async function renderKanban() {
   vincularEventos();
 }
 
-function cardOS(os, cliente) {
-  const saldo = Math.max(0, (os.valor_total || 0) - (os.sinal || 0));
+function cardOS(os, cliente, lancamentos = []) {
+  const saldoCentavos = calcularSaldoOrdemCentavos(os, lancamentos);
+  const saldo = saldoCentavos / 100;
+  const recebido = Math.max(0, Math.round((Number(os.valor_total) || 0) * 100) - saldoCentavos) / 100;
   const idx = COLUNAS.indexOf(os.status);
   const proxima = idx >= 0 && idx < COLUNAS.length - 1 ? COLUNAS[idx + 1] : null;
   const acaoWhatsapp = criarAcaoWhatsapp(os, cliente);
@@ -132,8 +204,8 @@ function cardOS(os, cliente) {
       </div>
       <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-600 dark:text-slate-300">
         <span class="font-semibold text-emerald-600 dark:text-emerald-400">${brl(os.valor_total || 0)}</span>
-        <span>Sinal: ${brl(os.sinal || 0)}</span>
-        ${saldo > 0 ? `<span class="text-amber-600 dark:text-amber-400">Saldo: ${brl(saldo)}</span>` : '<span class="text-emerald-600">Pago ✓</span>'}
+        <span>Recebido: ${brl(recebido)}</span>
+        ${saldo > 0 ? `<span class="text-amber-600 dark:text-amber-400">Em aberto: ${brl(saldo)}</span>` : '<span class="text-emerald-600">Pago ✓</span>'}
       </div>
       <div class="mt-2 flex gap-1">
         ${proxima ? `<button class="text-xs bg-slate-800 dark:bg-slate-900 text-white rounded px-2 py-1 hover:bg-slate-700" data-mover="${os.id}" data-destino="${proxima}">→ ${proxima}</button>` : ''}

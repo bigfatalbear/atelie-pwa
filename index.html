@@ -438,6 +438,14 @@
             <input id="mov-custo" type="number" step="0.01" min="0" class="input mt-1">
             <span class="mt-1 block text-xs text-slate-500">Será calculado o custo médio ponderado do insumo.</span>
           </label>
+          <label id="mov-financeiro-label" class="block text-sm">Despesa desta compra
+            <select id="mov-financeiro-status" class="input mt-1">
+              <option value="pendente">Registrar como conta a pagar</option>
+              <option value="pago">Registrar como despesa já paga</option>
+              <option value="">Não registrar despesa</option>
+            </select>
+            <span id="mov-financeiro-total" class="mt-1 block text-xs text-slate-500">O valor total usa a quantidade e o custo unitário desta entrada.</span>
+          </label>
           <label class="block text-sm">Motivo / observação
             <input id="mov-motivo" required maxlength="160" placeholder="Ex.: Compra, reposição, perda ou conferência" class="input mt-1">
           </label>
@@ -478,11 +486,117 @@
 
     <!-- ====================== PÁGINA: FINANCEIRO ====================== -->
     <section data-page="financeiro" class="hidden">
-      <h2 class="font-semibold text-slate-700 dark:text-slate-200 mb-3">Fluxo de Caixa</h2>
-      <p class="text-sm text-slate-500 mb-4">Entradas = soma dos sinais recebidos + saldos pagos na entrega de OSs "Pronto".</p>
-      <div id="financeiro-painel" class="bg-white dark:bg-slate-800 rounded-xl shadow p-4 border border-slate-200 dark:border-slate-700">
-        <p class="text-slate-400 text-sm italic">Carregando…</p>
+      <div class="financeiro-cabecalho">
+        <div>
+          <h2 class="font-semibold text-slate-200">Financeiro</h2>
+          <p class="mt-1 text-sm text-slate-400">Recebimentos vinculados às OS, despesas e vencimentos em um único fluxo, disponível offline.</p>
+        </div>
+        <label class="text-sm">Período
+          <input id="financeiro-periodo" type="month" class="input mt-1">
+        </label>
       </div>
+      <p id="financeiro-status" class="mb-3 text-sm" role="status" aria-live="polite"></p>
+      <div id="financeiro-painel" class="mb-6">
+        <p class="text-slate-400 text-sm italic">Carregando resumo financeiro…</p>
+      </div>
+
+      <div class="financeiro-formularios">
+        <form id="form-financeiro-entrada" class="financeiro-form">
+          <div>
+            <h3>Registrar recebimento</h3>
+            <p>Associe o valor a uma OS para atualizar automaticamente o saldo em aberto.</p>
+          </div>
+          <label class="text-sm">Ordem de serviço
+            <select id="financeiro-os" class="input mt-1"></select>
+          </label>
+          <span id="financeiro-entrada-ajuda" class="text-xs text-slate-400"></span>
+          <label class="text-sm">Descrição
+            <input id="financeiro-descricao-entrada" maxlength="160" placeholder="Ex.: Parcela, sinal ou venda avulsa" class="input mt-1">
+          </label>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <label class="text-sm">Valor recebido (R$)
+              <input id="financeiro-valor-entrada" required type="number" min="0.01" step="0.01" inputmode="decimal" class="input mt-1">
+            </label>
+            <label class="text-sm">Data do recebimento
+              <input id="financeiro-data-entrada" required type="date" class="input mt-1">
+            </label>
+          </div>
+          <label class="text-sm">Forma de pagamento
+            <select id="financeiro-forma" class="input mt-1">
+              <option value="pix">Pix</option>
+              <option value="dinheiro">Dinheiro</option>
+              <option value="transferencia">Transferência</option>
+              <option value="cartao">Cartão</option>
+              <option value="outro">Outro</option>
+            </select>
+          </label>
+          <label class="text-sm">Observação (opcional)
+            <input id="financeiro-observacao-entrada" maxlength="300" class="input mt-1">
+          </label>
+          <button id="financeiro-salvar-entrada" type="submit" class="btn-primario">Salvar recebimento</button>
+        </form>
+
+        <form id="form-financeiro-despesa" class="financeiro-form">
+          <div>
+            <h3>Registrar despesa</h3>
+            <p>Acompanhe custos do ateliê e sinalize o que ainda está por vencer.</p>
+          </div>
+          <label class="text-sm">Descrição
+            <input id="financeiro-descricao-despesa" required maxlength="160" placeholder="Ex.: Aluguel, energia ou compra de papel" class="input mt-1">
+          </label>
+          <label class="text-sm">Categoria
+            <input id="financeiro-categoria-despesa" maxlength="60" placeholder="Ex.: Insumos, estrutura, serviços" class="input mt-1">
+          </label>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <label class="text-sm">Valor (R$)
+              <input id="financeiro-valor-despesa" required type="number" min="0.01" step="0.01" inputmode="decimal" class="input mt-1">
+            </label>
+            <label class="text-sm"><span id="financeiro-data-despesa-label">Vencimento</span>
+              <input id="financeiro-vencimento-despesa" required type="date" class="input mt-1">
+            </label>
+          </div>
+          <label class="text-sm">Situação
+            <select id="financeiro-status-despesa" class="input mt-1">
+              <option value="pendente">A pagar</option>
+              <option value="pago">Já paga</option>
+            </select>
+          </label>
+          <label class="text-sm">Observação (opcional)
+            <input id="financeiro-observacao-despesa" maxlength="300" class="input mt-1">
+          </label>
+          <button id="financeiro-salvar-despesa" type="submit" class="btn-primario">Salvar despesa</button>
+        </form>
+      </div>
+
+      <section class="financeiro-secao" aria-labelledby="financeiro-receber-heading">
+        <div class="financeiro-secao-cabecalho">
+          <div>
+            <h3 id="financeiro-receber-heading">Contas a receber</h3>
+            <p>Saldo calculado com sinais e pagamentos parciais de cada ordem.</p>
+          </div>
+        </div>
+        <div class="financeiro-tabela-wrap">
+          <table class="financeiro-tabela">
+            <thead><tr><th>Ordem / cliente</th><th>Total recebido</th><th>Em aberto</th><th>Prazo</th><th>Ação</th></tr></thead>
+            <tbody id="financeiro-contas-receber"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="financeiro-secao" aria-labelledby="financeiro-movimentacoes-heading">
+        <div class="financeiro-secao-cabecalho">
+          <div>
+            <h3 id="financeiro-movimentacoes-heading">Movimentações do período</h3>
+            <p>Os sinais são importados das OS existentes; novos pagamentos e despesas ficam registrados no histórico.</p>
+          </div>
+        </div>
+        <div class="financeiro-tabela-wrap">
+          <table class="financeiro-tabela">
+            <thead><tr><th>Data</th><th>Descrição</th><th>Situação</th><th>Valor</th><th>Ações</th></tr></thead>
+            <tbody id="financeiro-movimentacoes"></tbody>
+          </table>
+        </div>
+      </section>
     </section>
 
   </main>
