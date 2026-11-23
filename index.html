@@ -179,6 +179,12 @@
             <input id="produto-margem" type="number" min="0" max="99" step="1" value="30" class="input mt-1">
           </label>
         </div>
+        <div>
+          <label class="text-sm">Fotos do produto (até 3, PNG/JPEG/WebP)
+            <input id="produto-fotos" type="file" accept="image/png,image/jpeg,image/webp" multiple class="input mt-1">
+          </label>
+          <ul id="produto-fotos-preview" class="mt-2 flex flex-wrap gap-2" aria-label="Fotos selecionadas do produto"></ul>
+        </div>
         <fieldset class="border border-slate-200 dark:border-slate-600 rounded-lg p-3">
           <legend class="text-xs uppercase text-slate-500 px-1">Composição por unidade</legend>
           <div id="produto-insumos" class="grid gap-1.5 sm:grid-cols-2 py-1"></div>
@@ -241,6 +247,11 @@
             <button id="btn-confirmar-adicao-produto" type="button" class="rounded-lg bg-sky-700 hover:bg-sky-600 px-3 py-2 text-sm">Incluir no orçamento</button>
           </section>
           <ul id="orcamento-produto-itens" class="space-y-2" aria-label="Produtos deste orçamento"></ul>
+          <section id="orcamento-fotos-painel" class="hidden space-y-2 rounded-lg border border-emerald-800 p-3" aria-label="Fotos dos produtos do orçamento">
+            <p class="text-xs font-semibold uppercase text-emerald-300">Fotos dos produtos</p>
+            <ul id="orcamento-fotos-lista" class="flex flex-wrap gap-2"></ul>
+            <button id="btn-enviar-fotos-orcamento" type="button" class="rounded-lg bg-emerald-700 hover:bg-emerald-600 px-3 py-2 text-sm">Compartilhar fotos no WhatsApp</button>
+          </section>
           <p id="orcamento-produto-total" class="rounded-lg bg-slate-800 p-3 text-sm" aria-live="polite"></p>
           <section id="personalizar-mensagem-painel" class="hidden">
             <label class="block text-sm">Mensagem adicional para o cliente

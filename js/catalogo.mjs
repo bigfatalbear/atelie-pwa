@@ -1,5 +1,30 @@
 import { calcularPrecoVenda } from './precificacao-core.mjs';
 
+export const MAX_FOTOS_PRODUTO = 3;
+export const MAX_FOTOS_ORCAMENTO = 10;
+
+const FOTO_DATA_URL = /^data:image\/(?:webp|png|jpeg);base64,[A-Za-z0-9+/=]+$/;
+const MAX_FOTO_DATA_URL_LENGTH = 400_000;
+
+export function normalizarFotosProduto(fotos, limite = MAX_FOTOS_PRODUTO) {
+  if (!Array.isArray(fotos)) return [];
+  const vistas = new Set();
+  return fotos.filter((foto) => {
+    if (typeof foto !== 'string' || foto.length > MAX_FOTO_DATA_URL_LENGTH) return false;
+    if (!FOTO_DATA_URL.test(foto) || vistas.has(foto)) return false;
+    vistas.add(foto);
+    return true;
+  }).slice(0, limite);
+}
+
+export function coletarFotosOrcamento(linhas) {
+  const itens = Array.isArray(linhas) ? linhas : [];
+  return normalizarFotosProduto(
+    itens.flatMap((linha) => (Array.isArray(linha?.fotos) ? linha.fotos : [])),
+    MAX_FOTOS_ORCAMENTO
+  );
+}
+
 export function lerComposicaoFicha(ficha) {
   const itens = ficha?.itens ?? [];
   if (Array.isArray(itens)) return itens;

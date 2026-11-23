@@ -16,7 +16,14 @@ import {
 import { calcularPrecoVenda, brl } from './precificacao.js';
 import { renderKanban, novaOS, COLUNAS } from './kanban.js';
 import { criarLinkWhatsapp, montarMensagemOrcamento, normalizarTelefoneWhatsapp } from './whatsapp.mjs';
-import { calcularCustoFicha, criarRascunhoOrcamento, lerComposicaoFicha } from './catalogo.mjs';
+import {
+  coletarFotosOrcamento,
+  MAX_FOTOS_PRODUTO,
+  normalizarFotosProduto,
+  calcularCustoFicha,
+  criarRascunhoOrcamento,
+  lerComposicaoFicha,
+} from './catalogo.mjs';
 import {
   calcularResumoEstoque,
   classificarEstoque,
@@ -44,6 +51,7 @@ let emailConfirmacaoPendente = null;
 let cooldownReenvioAte = 0;
 let timerCooldownReenvio = null;
 let logoSelecionada = null;
+let fotosProdutoSelecionadas = [];
 let orcamentoProdutosPendentes = [];
 let osProdutosSelecionados = [];
 
@@ -98,6 +106,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('#form-produto')?.addEventListener('submit', aoSalvarProduto);
   $('#form-produto')?.addEventListener('input', atualizarPreviewProduto);
   $('#form-produto')?.addEventListener('change', atualizarPreviewProduto);
+  $('#produto-fotos')?.addEventListener('change', aoSelecionarFotosProduto);
+  $('#produto-fotos-preview')?.addEventListener('click', removerFotoProduto);
   $('#produto-cancelar')?.addEventListener('click', cancelarEdicaoProduto);
   $('#lista-produtos')?.addEventListener('click', aoAcionarProduto);
   $('#form-orcamento-produto')?.addEventListener('submit', salvarOrcamentoProduto);
@@ -106,6 +116,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('#btn-confirmar-adicao-produto')?.addEventListener('click', adicionarProdutoAoOrcamento);
   $('#adicionar-produto-selecao')?.addEventListener('change', preencherPrecoProdutoAdicional);
   $('#orcamento-produto-itens')?.addEventListener('click', removerProdutoDoOrcamento);
+  $('#btn-enviar-fotos-orcamento')?.addEventListener('click', enviarFotosOrcamento);
   $('#btn-personalizar-mensagem')?.addEventListener('click', alternarPersonalizacaoMensagem);
   ['#orcamento-produto-quantidade', '#orcamento-produto-preco', '#orcamento-produto-sinal'].forEach((selector) => {
     $(selector)?.addEventListener('input', atualizarPreviewOrcamentoProduto);
@@ -192,7 +203,7 @@ async function selecionarLogoVisual(event) {
   }
 }
 
-async function otimizarLogo(arquivo) {
+async function otimizarImagem(arquivo, limitePx, qualidade) {
   const tiposPermitidos = ['image/png', 'image/jpeg', 'image/webp'];
   if (!tiposPermitidos.includes(arquivo.type)) {
     throw new Error('Escolha uma imagem PNG, JPEG ou WebP. SVG e outros formatos não são aceitos.');
@@ -218,7 +229,7 @@ async function otimizarLogo(arquivo) {
     throw new Error('A imagem possui resolução excessiva. Escolha um arquivo menor.');
   }
 
-  const escala = Math.min(1, 512 / Math.max(imagem.naturalWidth, imagem.naturalHeight));
+  const escala = Math.min(1, limitePx / Math.max(imagem.naturalWidth, imagem.naturalHeight));
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.round(imagem.naturalWidth * escala));
   canvas.height = Math.max(1, Math.round(imagem.naturalHeight * escala));
@@ -226,7 +237,7 @@ async function otimizarLogo(arquivo) {
   if (!contexto) throw new Error('Este navegador não permite processar a imagem selecionada.');
   contexto.drawImage(imagem, 0, 0, canvas.width, canvas.height);
 
-  const dataUrl = canvas.toDataURL('image/webp', 0.82);
+  const dataUrl = canvas.toDataURL('image/webp', qualidade);
   if (!/^data:image\/(?:webp|png);base64,/.test(dataUrl)) {
     throw new Error('Não foi possível converter a imagem para um formato seguro.');
   }
@@ -234,6 +245,50 @@ async function otimizarLogo(arquivo) {
     throw new Error('A imagem otimizada ficou muito grande. Escolha uma imagem mais simples.');
   }
   return dataUrl;
+}
+
+async function otimizarLogo(arquivo) {
+  return otimizarImagem(arquivo, 512, 0.82);
+}
+
+async function aoSelecionarFotosProduto(event) {
+  const arquivos = Array.from(event.target.files || []);
+  if (!arquivos.length) return;
+  try {
+    const vagas = MAX_FOTOS_PRODUTO - fotosProdutoSelecionadas.length;
+    if (vagas <= 0) throw new Error(`Máximo de ${MAX_FOTOS_PRODUTO} fotos por produto.`);
+    const processadas = [];
+    for (const arquivo of arquivos.slice(0, vagas)) {
+      processadas.push(await otimizarImagem(arquivo, 1024, 0.8));
+    }
+    fotosProdutoSelecionadas = normalizarFotosProduto([...fotosProdutoSelecionadas, ...processadas]);
+    definirStatusProdutos(processadas.length < arquivos.length
+      ? `Adicionadas ${processadas.length} foto(s); limite de ${MAX_FOTOS_PRODUTO} por produto.`
+      : `${processadas.length} foto(s) pronta(s) para salvar.`);
+  } catch (error) {
+    fotosProdutoSelecionadas = normalizarFotosProduto(fotosProdutoSelecionadas);
+    definirStatusProdutos(error.message || 'Não foi possível processar as fotos.', true);
+  } finally {
+    event.target.value = '';
+    renderFotosProdutoPreview();
+  }
+}
+
+function renderFotosProdutoPreview() {
+  const preview = $('#produto-fotos-preview');
+  if (!preview) return;
+  preview.innerHTML = fotosProdutoSelecionadas.map((foto, indice) => `
+    <li class="relative">
+      <img src="${foto}" alt="Foto ${indice + 1} do produto" class="h-20 w-20 rounded-lg border border-slate-300 object-cover">
+      <button type="button" data-remover-foto="${indice}" aria-label="Remover foto ${indice + 1}" class="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-700 text-xs text-white">×</button>
+    </li>`).join('');
+}
+
+function removerFotoProduto(event) {
+  const botao = event.target.closest('[data-remover-foto]');
+  if (!botao) return;
+  fotosProdutoSelecionadas.splice(Number(botao.dataset.removerFoto), 1);
+  renderFotosProdutoPreview();
 }
 
 function salvarIdentidadeVisual(event) {
@@ -1105,6 +1160,10 @@ async function renderCatalogo() {
           <div class="min-w-0">
             <h3 class="font-semibold">${escaparHtml(produto.nome)}</h3>
             <p class="mt-1 text-xs text-slate-500">${escaparHtml(produto.tipo || 'Produto pré-estabelecido')}</p>
+            ${normalizarFotosProduto(produto.fotos).length ? `
+            <ul class="mt-2 flex flex-wrap gap-1" aria-label="Fotos de ${escaparHtml(produto.nome)}">
+              ${normalizarFotosProduto(produto.fotos).map((foto, i) => `<li><img src="${foto}" alt="Foto ${i + 1} de ${escaparHtml(produto.nome)}" class="h-12 w-12 rounded border border-slate-300 object-cover"></li>`).join('')}
+            </ul>` : ''}
           </div>
           <div class="flex gap-2">
             <button type="button" class="rounded-lg bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 text-xs" data-editar-produto="${produto.id}">Editar ficha</button>
@@ -1222,6 +1281,7 @@ async function aoSalvarProduto(event) {
       ...(id ? { id } : {}),
       nome,
       tipo: produtoExistente?.tipo || 'Produto pré-estabelecido',
+      fotos: fotosProdutoSelecionadas,
       custo_total: calculo.custoTotal,
       preco_base: calculo.precoVenda,
       criado_em: produtoExistente?.criado_em || agora,
@@ -1260,6 +1320,8 @@ async function editarProduto(id) {
   const ficha = await db.fichas_tecnicas.where('produto_id').equals(id).first();
   $('#produto-id').value = produto.id;
   $('#produto-nome').value = produto.nome || '';
+  fotosProdutoSelecionadas = normalizarFotosProduto(produto.fotos);
+  renderFotosProdutoPreview();
   $('#produto-tempo').value = ficha?.tempo_minutos ?? 0;
   $('#produto-valor-hora').value = ficha?.valor_hora ?? 0;
   $('#produto-taxa').value = (Number(ficha?.taxa_pagamento) || 0) * 100;
@@ -1293,6 +1355,8 @@ async function excluirProduto(id) {
 
 async function cancelarEdicaoProduto() {
   $('#form-produto')?.reset();
+  fotosProdutoSelecionadas = [];
+  renderFotosProdutoPreview();
   $('#produto-id').value = '';
   $('#produto-tempo').value = 0;
   $('#produto-valor-hora').value = 0;
@@ -1337,6 +1401,7 @@ async function aoAcionarProduto(event) {
       quantidade: Number(document.querySelector(`[data-produto-quantidade-orcamento="${id}"]`)?.value) || 1,
       precoUnitario: calculo.precoVenda,
       composicao,
+      fotos: normalizarFotosProduto(produto.fotos),
     }];
     const clienteSelecionado = $('#produto-cliente').value;
     const clienteSelect = $('#orcamento-produto-cliente');
@@ -1449,6 +1514,7 @@ async function adicionarProdutoAoOrcamento() {
       quantidade,
       precoUnitario,
       composicao,
+      fotos: normalizarFotosProduto(produto.fotos),
     });
     $('#adicionar-produto-selecao').value = '';
     $('#adicionar-produto-quantidade').value = '1';
@@ -1478,11 +1544,51 @@ function linhasOrcamentoAtuais() {
 }
 
 function renderItensDoOrcamento() {
+  const fotos = coletarFotosOrcamento(linhasOrcamentoAtuais());
+  const painel = $('#orcamento-fotos-painel');
+  painel?.classList.toggle('hidden', fotos.length === 0);
+  const listaFotos = $('#orcamento-fotos-lista');
+  if (listaFotos) {
+    listaFotos.innerHTML = fotos.map((foto, indice) => `
+      <li><img src="${foto}" alt="Foto ${indice + 1} deste orçamento" class="h-16 w-16 rounded border border-slate-600 object-cover"></li>`).join('');
+  }
   $('#orcamento-produto-itens').innerHTML = linhasOrcamentoAtuais().map((produto, index) => `
     <li class="flex items-center justify-between gap-2 rounded-lg bg-slate-800 px-3 py-2 text-sm">
       <span>${escaparHtml(produto.titulo)} · ${produto.quantidade} × ${brl(produto.precoUnitario)} = ${brl(produto.quantidade * produto.precoUnitario)}</span>
       ${index ? `<button type="button" data-remover-item-orcamento="${index}" aria-label="Remover ${escaparHtml(produto.titulo)}" class="rounded bg-red-900 px-2 py-1 text-xs">Remover</button>` : '<span class="text-xs text-slate-400">Produto principal</span>'}
     </li>`).join('');
+}
+
+async function enviarFotosOrcamento(event) {
+  const botao = event.currentTarget;
+  const status = $('#orcamento-produto-status');
+  const fotos = coletarFotosOrcamento(linhasOrcamentoAtuais());
+  if (!fotos.length) return;
+  botao.disabled = true;
+  try {
+    const arquivos = await Promise.all(fotos.map(async (foto, indice) => {
+      const blob = await (await fetch(foto)).blob();
+      return new File([blob], `produto-${indice + 1}.webp`, { type: 'image/webp' });
+    }));
+    if (navigator.share && navigator.canShare?.({ files: arquivos })) {
+      await navigator.share({ files: arquivos, title: 'Fotos do orçamento' });
+      status.textContent = 'Fotos compartilhadas. Escolha o WhatsApp na lista de compartilhamento.';
+      return;
+    }
+    arquivos.forEach((arquivo) => {
+      const url = URL.createObjectURL(arquivo);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = arquivo.name;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+    status.textContent = 'Fotos baixadas. Anexe-as na conversa do WhatsApp após enviar a mensagem.';
+  } catch (error) {
+    if (error?.name !== 'AbortError') status.textContent = error.message || 'Não foi possível compartilhar as fotos.';
+  } finally {
+    botao.disabled = false;
+  }
 }
 
 async function removerProdutoDoOrcamento(event) {
