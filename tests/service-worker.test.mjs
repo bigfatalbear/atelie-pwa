@@ -42,8 +42,8 @@ test('failed shell precache deletes only the new cache and rejects installation'
   });
 
   await assert.rejects(installPromise, failure);
-  assert.deepEqual(calls.opened, ['atelie-v12']);
-  assert.deepEqual(calls.deleted, ['atelie-v12']);
+  assert.deepEqual(calls.opened, ['atelie-v13']);
+  assert.deepEqual(calls.deleted, ['atelie-v13']);
   assert.equal(calls.skipWaiting, 0);
 });
 
@@ -53,7 +53,7 @@ test('successful shell precache skips waiting without deleting a cache', async (
   });
 
   await installPromise;
-  assert.deepEqual(calls.opened, ['atelie-v12']);
+  assert.deepEqual(calls.opened, ['atelie-v13']);
   assert.deepEqual(calls.deleted, []);
   assert.equal(calls.skipWaiting, 1);
 });
@@ -61,4 +61,8 @@ test('successful shell precache skips waiting without deleting a cache', async (
 test('preloads both financial modules for offline use', () => {
   assert.match(serviceWorkerSource, /'\.\/js\/financeiro\.mjs'/);
   assert.match(serviceWorkerSource, /'\.\/js\/financeiro-ui\.js'/);
+});
+
+test('preloads the always-available help guide for offline use', () => {
+  assert.match(serviceWorkerSource, /'\.\/js\/ajuda\.mjs'/);
 });

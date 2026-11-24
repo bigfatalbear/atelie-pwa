@@ -28,6 +28,7 @@
         <span id="app-name">Ateliê Manager</span>
       </h1>
       <div class="flex items-center gap-3">
+        <button id="btn-ajuda-topo" class="text-sm bg-indigo-600 hover:bg-indigo-500 rounded-full px-3 py-1.5 font-semibold" title="Abrir guia de como usar" aria-label="Abrir guia de como usar">❓ Ajuda</button>
         <button id="btn-sync" class="text-xs bg-slate-700 hover:bg-slate-600 rounded-full px-3 py-1" title="Sincronizar com Supabase">⭳ Supabase</button>
         <span id="selo-sync" class="text-xs font-mono">🟢 Online</span>
       </div>
@@ -49,7 +50,7 @@
     <!-- ====================== SUPABASE ====================== -->
     <section class="mb-6 bg-white dark:bg-slate-800 rounded-xl shadow p-4 space-y-3 border border-slate-200 dark:border-slate-700" aria-labelledby="supabase-heading">
       <div>
-        <h2 id="supabase-heading" class="font-semibold">Sincronização segura com Supabase</h2>
+        <h2 id="supabase-heading" class="font-semibold" data-ajuda="sync">Sincronização segura com Supabase</h2>
         <p class="text-sm text-slate-500 mt-1">Os dados permanecem neste dispositivo para uso offline e são sincronizados na sua conta Supabase quando houver internet.</p>
       </div>
       <p class="text-xs text-slate-500">Projeto configurado: <code>nbekjeuadgiscrsgygyj.supabase.co</code>. A chave publishable é pública; a segurança depende do login e das políticas RLS. Nenhuma chave secreta é usada pelo app.</p>
@@ -105,7 +106,7 @@
     <!-- ====================== PÁGINA: KANBAN ====================== -->
     <section data-page="kanban">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="font-semibold text-slate-700 dark:text-slate-200">Quadro de Ordens de Serviço</h2>
+        <h2 class="font-semibold text-slate-700 dark:text-slate-200" data-ajuda="kanban">Quadro de Ordens de Serviço</h2>
         <button onclick="document.getElementById('form-os').scrollIntoView({behavior:'smooth'})"
                 class="bg-emerald-600 hover:bg-emerald-500 text-white text-sm rounded-lg px-3 py-1.5">+ Nova OS</button>
       </div>
@@ -157,7 +158,7 @@
 
     <!-- ====================== PÁGINA: PRODUTOS ====================== -->
     <section data-page="produtos" class="hidden">
-      <h2 class="font-semibold text-slate-700 dark:text-slate-200 mb-2">Catálogo de Produtos</h2>
+      <h2 class="font-semibold text-slate-700 dark:text-slate-200 mb-2" data-ajuda="produtos">Catálogo de Produtos</h2>
       <p class="text-sm text-slate-500 mb-4">Monte fichas com os insumos do estoque e calcule custo e preço sugerido. Os orçamentos guardam a composição usada no momento da criação.</p>
       <form id="form-produto" class="mb-6 bg-white dark:bg-slate-800 rounded-xl shadow p-4 space-y-3 border border-slate-200 dark:border-slate-700">
         <h3 id="produto-form-titulo" class="font-semibold">Cadastrar produto pré-estabelecido</h3>
@@ -273,7 +274,7 @@
 
     <!-- ====================== PÁGINA: CLIENTES ====================== -->
     <section data-page="clientes" class="hidden">
-      <h2 class="font-semibold text-slate-700 dark:text-slate-200 mb-3">Cadastro de Clientes</h2>
+      <h2 class="font-semibold text-slate-700 dark:text-slate-200 mb-3" data-ajuda="clientes">Cadastro de Clientes</h2>
       <form id="form-cliente" class="mb-6 bg-white dark:bg-slate-800 rounded-xl shadow p-4 space-y-3 border border-slate-200 dark:border-slate-700">
         <h3 id="cliente-form-titulo" class="font-semibold">Cadastrar cliente</h3>
         <input id="cliente-id" type="hidden">
@@ -300,7 +301,7 @@
 
     <!-- ====================== PÁGINA: PERSONALIZAÇÃO ====================== -->
     <section data-page="personalizacao" class="hidden">
-      <h2 class="font-semibold text-slate-700 dark:text-slate-200 mb-3">Personalização do aplicativo</h2>
+      <h2 class="font-semibold text-slate-700 dark:text-slate-200 mb-3" data-ajuda="personalizacao">Personalização do aplicativo</h2>
       <p class="text-sm text-slate-500 mb-4">O nome e a logo ficam salvos neste dispositivo e continuam disponíveis offline.</p>
       <form id="form-identidade" class="bg-white dark:bg-slate-800 rounded-xl shadow p-4 space-y-4 border border-slate-200 dark:border-slate-700 max-w-2xl">
         <label class="block text-sm">Nome exibido no topo
@@ -324,7 +325,7 @@
     <section data-page="insumos" class="hidden">
       <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 class="font-semibold text-slate-700 dark:text-slate-200">Controle de Estoque de Insumos</h2>
+          <h2 class="font-semibold text-slate-700 dark:text-slate-200" data-ajuda="insumos">Controle de Estoque de Insumos</h2>
           <p class="mt-1 text-sm text-slate-500">Acompanhe saldo, custo, reposição e movimentações. Alterações ficam salvas offline e sincronizam com sua conta.</p>
         </div>
         <button id="btn-estoque-nova-movimentacao" type="button" class="rounded-lg bg-sky-700 hover:bg-sky-600 px-4 py-2 text-sm font-medium text-white">Registrar movimentação</button>
@@ -471,7 +472,7 @@
 
     <!-- ====================== PÁGINA: PRECIFICAÇÃO ====================== -->
     <section data-page="preco" class="hidden">
-      <h2 class="font-semibold text-slate-700 dark:text-slate-200 mb-3">Calculadora de Precificação</h2>
+      <h2 class="font-semibold text-slate-700 dark:text-slate-200 mb-3" data-ajuda="preco">Calculadora de Precificação</h2>
       <form id="form-calc" class="bg-white dark:bg-slate-800 rounded-xl shadow p-4 space-y-3 border border-slate-200 dark:border-slate-700 max-w-lg">
         <div class="grid gap-3 sm:grid-cols-2">
           <label class="text-sm">Tempo de produção (min)
@@ -499,7 +500,7 @@
     <section data-page="financeiro" class="hidden">
       <div class="financeiro-cabecalho">
         <div>
-          <h2 class="font-semibold text-slate-200">Financeiro</h2>
+          <h2 class="font-semibold text-slate-200" data-ajuda="financeiro">Financeiro</h2>
           <p class="mt-1 text-sm text-slate-400">Recebimentos vinculados às OS, despesas e vencimentos em um único fluxo, disponível offline.</p>
         </div>
         <label class="text-sm">Período
@@ -611,6 +612,9 @@
     </section>
 
   </main>
+
+  <!-- Botão de ajuda sempre visível, grande e fácil de tocar -->
+  <button id="btn-ajuda" type="button" aria-label="Abrir guia de como usar o aplicativo">❓ Como usar</button>
 
   <footer class="text-center text-xs text-slate-400 pb-6">
     <span id="footer-app-name">Ateliê Manager</span> · PWA offline-first (Dexie.js + Supabase) · v1.0

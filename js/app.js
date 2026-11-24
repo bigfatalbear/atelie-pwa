@@ -32,6 +32,7 @@ import {
   validarDadosInsumo,
 } from './estoque.mjs';
 import { configurarFinanceiro, renderFinanceiro } from './financeiro-ui.js';
+import { configurarAjuda } from './ajuda.mjs';
 
 const $ = (sel) => document.querySelector(sel);
 const CHAVE_IDENTIDADE = 'atelie-identidade-visual';
@@ -65,6 +66,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
 
 document.addEventListener('DOMContentLoaded', async () => {
   configurarTabs();
+  configurarAjuda();
   configurarIdentidadeVisual();
   await configurarSupabaseUI();
   configurarFinanceiro();
