@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Ateliê Manager — Gráfica, Cartonagem, Encadernação &amp; Capotaria</title>
+  <meta name="description" content="Gestão de ordens de serviço, precificação e estoque para ateliê híbrido. Funciona offline.">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="icon" type="image/jpeg" href="icons/icon-192.jpg">
+  <link rel="apple-touch-icon" href="icons/icon-192.jpg">
+  <!-- Tailwind via CDN (troque por build próprio no Vite para produção) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' };
+  </script>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="bg-slate-50 dark:bg-slate-900 dark:text-slate-100 min-h-screen">
+
+  <!-- ====================== CABEÇALHO ====================== -->
+  <header class="bg-slate-800 dark:bg-slate-950 text-white px-4 py-3 sticky top-0 z-40">
+    <div class="max-w-6xl mx-auto flex items-center justify-between gap-3">
+      <h1 class="flex items-center gap-2 font-bold text-lg tracking-tight">
+        <img id="app-logo" src="icons/icon-192.jpg" alt="Logo do Ateliê" class="h-10 w-10 shrink-0 rounded-lg bg-white object-cover ring-1 ring-white/20">
+        <span id="app-name">Ateliê Manager</span>
+      </h1>
+      <div class="flex items-center gap-3">
+        <button id="btn-ir-insumos" class="text-sm bg-emerald-600 hover:bg-emerald-500 rounded-full px-3 py-1.5 font-semibold" title="Ir para cadastro de insumos">＋ Insumos</button>
+        <button id="btn-ajuda-topo" class="text-sm bg-indigo-600 hover:bg-indigo-500 rounded-full px-3 py-1.5 font-semibold" title="Abrir guia de como usar" aria-label="Abrir guia de como usar">❓ Ajuda</button>
+        <button id="btn-sync" class="text-xs bg-slate-700 hover:bg-slate-600 rounded-full px-3 py-1" title="Sincronizar com Supabase">⭳ Supabase</button>
+        <span id="selo-sync" class="text-xs font-mono">🟢 Online</span>
+      </div>
+    </div>
+    <!-- Abas -->
+    <nav class="max-w-6xl mx-auto mt-3 flex gap-2 overflow-x-auto" role="tablist" aria-label="Navegação">
+      <button data-tab="kanban" class="data-tab bg-slate-800 text-white rounded-lg px-4 py-1.5 text-sm whitespace-nowrap" role="tab">🗂️ Ordens de Serviço</button>
+      <button data-tab="insumos" class="data-tab rounded-lg px-4 py-1.5 text-sm bg-emerald-700 text-white ring-2 ring-emerald-300 whitespace-nowrap font-semibold" role="tab">⭐ 📦 Insumos</button>
+      <button data-tab="clientes" class="rounded-lg px-4 py-1.5 text-sm bg-slate-200 text-slate-800 whitespace-nowrap" role="tab">👥 Clientes</button>
+      <button data-tab="produtos" class="rounded-lg px-4 py-1.5 text-sm bg-slate-200 text-slate-800 whitespace-nowrap" role="tab">🧾 Produtos</button>
+      <button data-tab="personalizacao" class="rounded-lg px-4 py-1.5 text-sm bg-slate-200 text-slate-800 whitespace-nowrap" role="tab">🎨 Personalização</button>
+      <button data-tab="preco" class="rounded-lg px-4 py-1.5 text-sm bg-slate-200 text-slate-800 whitespace-nowrap" role="tab">🧮 Precificação</button>
+      <button data-tab="financeiro" class="rounded-lg px-4 py-1.5 text-sm bg-slate-200 text-slate-800 whitespace-nowrap" role="tab">💰 Financeiro</button>
+    </nav>
+  </header>
+
+  <main class="max-w-6xl mx-auto p-4 pb-24">
+
+    <!-- ====================== SUPABASE ====================== -->
+    <section class="mb-6 bg-white dark:bg-slate-800 rounded-xl shadow p-4 space-y-3 border border-slate-200 dark:border-slate-700" aria-labelledby="supabase-heading">
+      <div>
+        <h2 id="supabase-heading" class="font-semibold" data-ajuda="sync">Sincronização segura com Supabase</h2>
+        <p class="text-sm text-slate-500 mt-1">Os dados permanecem neste dispositivo para uso offline e são sincronizados na sua conta Supabase quando houver internet.</p>
+      </div>
+      <p class="text-xs text-slate-500">Projeto configurado: <code>nbekjeuadgiscrsgygyj.supabase.co</code>. A chave publishable é pública; a segurança depende do login e das políticas RLS. Nenhuma chave secreta é usada pelo app.</p>
+      <div id="supabase-account" class="grid gap-3 sm:grid-cols-2">
+        <label class="text-sm">E-mail da conta
+          <input id="supabase-email" class="input mt-1" type="email" autocomplete="username" placeholder="voce@exemplo.com">
+        </label>
+        <label class="text-sm">Senha da conta
+          <input id="supabase-password" class="input mt-1" type="password" autocomplete="current-password" placeholder="Senha do Supabase">
+        </label>
+        <div class="flex flex-wrap gap-2 sm:col-span-2">
+          <button id="btn-supabase-entrar" type="button" class="btn-primario">Entrar e sincronizar</button>
+          <button id="btn-supabase-criar-conta" type="button" class="rounded-lg bg-sky-700 hover:bg-sky-600 text-white px-3 py-2 text-sm">Criar conta</button>
+          <button id="btn-supabase-recuperar-senha" type="button" class="rounded-lg border border-cyan-600 px-3 py-2 text-sm text-cyan-700 underline dark:text-cyan-300">Esqueci minha senha</button>
+        </div>
+        <div id="supabase-resend-confirmation" class="hidden sm:col-span-2 items-center gap-2 text-sm">
+          <button id="btn-supabase-resend-confirmation" type="button" class="text-cyan-400 underline underline-offset-2 disabled:cursor-not-allowed disabled:opacity-60">Reenviar e-mail de confirmação</button>
+          <span id="supabase-resend-status" class="text-slate-500" role="status" aria-live="polite"></span>
+        </div>
+      </div>
+      <div id="supabase-session" class="hidden flex-wrap items-center gap-3 text-sm">
+        <span>Conta conectada: <strong id="supabase-session-email"></strong></span>
+        <button id="btn-supabase-sair" type="button" class="rounded-lg bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 text-sm">Sair</button>
+      </div>
+      <form id="supabase-recovery-password" class="hidden max-w-xl space-y-3 rounded-lg border border-cyan-700 p-3" aria-labelledby="supabase-recovery-heading">
+        <h3 id="supabase-recovery-heading" class="font-semibold">Definir nova senha</h3>
+        <label class="block text-sm">Nova senha
+          <input id="supabase-nova-senha" class="input mt-1" type="password" autocomplete="new-password" minlength="6" required>
+        </label>
+        <label class="block text-sm">Confirme a nova senha
+          <input id="supabase-confirmar-nova-senha" class="input mt-1" type="password" autocomplete="new-password" minlength="6" required>
+        </label>
+        <button id="btn-supabase-salvar-senha" type="submit" class="btn-primario">Salvar nova senha</button>
+      </form>
+      <details class="text-sm text-slate-600 dark:text-slate-300">
+        <summary class="cursor-pointer font-medium">Sobre a configuração do Supabase</summary>
+        <ol class="list-decimal pl-5 pt-2 space-y-1">
+          <li>O app já vem apontado para o projeto <code>atelie-pwa</code>; URL e chave publishable são incluídas como configuração pública do frontend.</li>
+          <li>O esquema e as políticas RLS são definidos em <a class="text-cyan-400 underline" href="https://github.com/bigfatalbear/atelie-pwa/blob/main/supabase/setup.sql" target="_blank" rel="noopener noreferrer">supabase/setup.sql</a>. Nunca use a chave <code>secret</code> ou <code>service_role</code> neste app.</li>
+          <li>Crie sua conta e confirme o e-mail enviado pelo Supabase antes de entrar. Use a mesma conta em outros dispositivos.</li>
+          <li>Os dados locais não são apagados ao sair. Se houver divergência, escolha explicitamente qual cópia manter; o app cria um backup antes de substituir dados.</li>
+        </ol>
+      </details>
+      <div class="flex flex-wrap gap-2">
+        <div id="supabase-resolution" class="hidden flex-wrap gap-2">
+          <button type="button" data-supabase-resolution="cloud" class="rounded-lg bg-sky-700 hover:bg-sky-600 text-white px-3 py-2 text-sm">Usar dados do Supabase</button>
+          <button type="button" data-supabase-resolution="local" class="rounded-lg bg-amber-600 hover:bg-amber-500 text-white px-3 py-2 text-sm">Usar dados deste dispositivo</button>
+        </div>
+      </div>
+      <p id="supabase-status" class="text-sm text-slate-600" role="status" aria-live="polite"></p>
+    </section>
+
+    <!-- ====================== PÁGINA: KANBAN ====================== -->
+    <section data-page="kanban">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="font-semibold text-slate-700 dark:text-slate-200" data-ajuda="kanban">Quadro de Ordens de Serviço</h2>
+        <button onclick="document.getElementById('form-os').scrollIntoView({behavior:'smooth'})"
+                class="bg-emerald-600 hover:bg-emerald-500 text-white text-sm rounded-lg px-3 py-1.5">+ Nova OS</button>
+      </div>
+      <div id="kanban" class="flex gap-3 overflow-x-auto pb-4"><!-- colunas renderizadas pelo kanban.js --></div>
+
+      <!-- Form: Nova OS -->
+      <form id="form-os" class="mt-6 bg-white dark:bg-slate-800 rounded-xl shadow p-4 space-y-3 border border-slate-200 dark:border-slate-700">
+        <h3 class="font-semibold">Nova Ordem de Serviço</h3>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <input id="os-titulo" required placeholder="Título (ex.: 50 flyers A5 couché)" class="input">
+          <select id="os-cliente" class="input"></select>
+          <input id="os-valor" type="number" step="0.01" min="0" placeholder="Valor total (R$) — ou use a calculadora" class="input">
+          <input id="os-sinal" type="number" step="0.01" min="0" placeholder="Sinal pago (R$) — saldo devido na entrega" class="input">
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button id="btn-os-adicionar-produtos" type="button" aria-expanded="false" aria-controls="os-adicionar-produtos-painel" class="rounded-lg bg-sky-700 hover:bg-sky-600 text-white px-3 py-2 text-sm">Adicionar produtos</button>
+          <button id="btn-os-personalizar-mensagem" type="button" aria-expanded="false" aria-controls="os-personalizar-mensagem-painel" class="rounded-lg bg-violet-700 hover:bg-violet-600 text-white px-3 py-2 text-sm">Personalizar mensagem para cliente</button>
+        </div>
+        <section id="os-adicionar-produtos-painel" class="hidden space-y-3 rounded-lg border border-slate-600 p-3" aria-label="Adicionar produtos à ordem de serviço">
+          <h4 class="text-sm font-semibold">Produtos do catálogo</h4>
+          <div class="grid gap-3 sm:grid-cols-3">
+            <label class="text-sm sm:col-span-3">Produto
+              <select id="os-produto-selecao" class="input mt-1"></select>
+            </label>
+            <label class="text-sm">Quantidade
+              <input id="os-produto-quantidade" type="number" min="1" step="1" value="1" class="input mt-1">
+            </label>
+            <label class="text-sm sm:col-span-2">Preço unitário (R$)
+              <input id="os-produto-preco" type="number" min="0" step="0.01" class="input mt-1">
+            </label>
+          </div>
+          <button id="btn-os-confirmar-produto" type="button" class="rounded-lg bg-sky-700 hover:bg-sky-600 text-white px-3 py-2 text-sm">Incluir produto na OS</button>
+          <ul id="os-produtos-selecionados" class="space-y-2" aria-label="Produtos incluídos na ordem"></ul>
+        </section>
+        <section id="os-personalizar-mensagem-painel" class="hidden space-y-2">
+          <label class="block text-sm">Mensagem personalizada para o cliente
+            <textarea id="os-mensagem-cliente" rows="4" maxlength="1000" placeholder="Escreva uma observação, prazo ou condição especial para enviar pelo WhatsApp." class="input mt-1"></textarea>
+          </label>
+          <p class="text-xs text-slate-500">A mensagem será aberta no WhatsApp para você revisar e enviar manualmente.</p>
+        </section>
+        <p id="os-status" class="text-sm" role="status" aria-live="polite"></p>
+        <fieldset class="border border-slate-200 dark:border-slate-600 rounded-lg p-3">
+          <legend class="text-xs uppercase text-slate-500 px-1">Insumos consumidos (descontados ao iniciar a produção)</legend>
+          <div id="os-insumos-multiplo" class="grid gap-1.5 sm:grid-cols-2 py-1"></div>
+        </fieldset>
+        <button type="submit" class="btn-primario">Criar OS</button>
+      </form>
+    </section>
+
+    <!-- ====================== PÁGINA: PRODUTOS ====================== -->
+    <section data-page="produtos" class="hidden">
+      <h2 class="font-semibold text-slate-700 dark:text-slate-200 mb-2" data-ajuda="produtos">Catálogo de Produtos</h2>
+      <p class="text-sm text-slate-500 mb-4">Monte fichas com os insumos do estoque e calcule custo e preço sugerido. Os orçamentos guardam a composição usada no momento da criação.</p>
+      <form id="form-produto" class="mb-6 bg-white dark:bg-slate-800 rounded-xl shadow p-4 space-y-3 border border-slate-200 dark:border-slate-700">
+        <h3 id="produto-form-titulo" class="font-semibold">Cadastrar produto pré-estabelecido</h3>
+        <input id="produto-id" type="hidden">
+        <div class="grid gap-3 sm:grid-cols-2">
+          <label class="text-sm">Nome do produto
+            <input id="produto-nome" required maxlength="120" placeholder="Ex.: Álbum de fotos A5" class="input mt-1">
+          </label>
+          <label class="text-sm">Tempo de produção (minutos)
+            <input id="produto-tempo" type="number" min="0" step="1" value="0" class="input mt-1">
+          </label>
+          <label class="text-sm">Valor da hora de trabalho (R$)
+            <input id="produto-valor-hora" type="number" min="0" step="0.01" value="0" class="input mt-1">
+          </label>
+          <label class="text-sm">Taxa de pagamento (%)
+            <input id="produto-taxa" type="number" min="0" step="0.1" value="0" class="input mt-1">
+          </label>
+          <label class="text-sm">Margem de lucro (%)
+            <input id="produto-margem" type="number" min="0" max="99" step="1" value="30" class="input mt-1">
+          </label>
+        </div>
+        <div>
+          <label class="text-sm">Fotos do produto (até 3, PNG/JPEG/WebP)
+            <input id="produto-fotos" type="file" accept="image/png,image/jpeg,image/webp" multiple class="input mt-1">
+          </label>
+          <ul id="produto-fotos-preview" class="mt-2 flex flex-wrap gap-2" aria-label="Fotos selecionadas do produto"></ul>
+        </div>
+        <fieldset class="border border-slate-200 dark:border-slate-600 rounded-lg p-3">
+          <legend class="text-xs uppercase text-slate-500 px-1">Composição por unidade</legend>
+          <div id="produto-insumos" class="grid gap-1.5 sm:grid-cols-2 py-1"></div>
+        </fieldset>
+        <div id="produto-resultado" class="bg-slate-50 dark:bg-slate-900 rounded-lg p-3 text-sm" aria-live="polite">
+          <p class="text-slate-500">Selecione insumos para calcular o custo e o preço sugerido.</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button id="produto-salvar" type="submit" class="btn-primario">Salvar produto</button>
+          <button id="produto-cancelar" type="button" class="hidden rounded-lg bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 text-sm">Cancelar edição</button>
+        </div>
+        <p id="produtos-status" class="text-sm" role="status" aria-live="polite"></p>
+      </form>
+      <div class="mb-3 max-w-sm">
+        <label class="text-sm">Cliente do próximo orçamento (opcional)
+          <select id="produto-cliente" class="input mt-1"></select>
+        </label>
+      </div>
+      <ul id="lista-produtos" class="grid gap-3 md:grid-cols-2" aria-label="Produtos cadastrados"></ul>
+      <dialog id="dialog-orcamento-produto" aria-labelledby="orcamento-produto-heading" class="w-[min(94vw,42rem)] max-h-[90vh] rounded-xl border border-slate-600 bg-slate-900 p-0 text-slate-100 shadow-2xl backdrop:bg-slate-950/70">
+        <form id="form-orcamento-produto" class="space-y-4 p-5">
+          <div>
+            <h3 id="orcamento-produto-heading" class="text-lg font-semibold">Personalizar orçamento</h3>
+            <p class="text-sm text-slate-400">Revise os detalhes e a mensagem antes de criar a OS e abrir o WhatsApp.</p>
+          </div>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <label class="text-sm sm:col-span-2">Produto/descrição
+              <input id="orcamento-produto-titulo" required maxlength="160" class="input mt-1">
+            </label>
+            <label class="text-sm">Cliente
+              <select id="orcamento-produto-cliente" required class="input mt-1"></select>
+            </label>
+            <label class="text-sm">Quantidade
+              <input id="orcamento-produto-quantidade" required type="number" min="1" step="1" class="input mt-1">
+            </label>
+            <label class="text-sm">Preço por unidade (R$)
+              <input id="orcamento-produto-preco" required type="number" min="0" step="0.01" class="input mt-1">
+            </label>
+            <label class="text-sm">Sinal (R$)
+              <input id="orcamento-produto-sinal" required type="number" min="0" step="0.01" value="0" class="input mt-1">
+            </label>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button id="btn-adicionar-produtos" type="button" aria-expanded="false" aria-controls="adicionar-produtos-painel" class="rounded-lg bg-sky-700 hover:bg-sky-600 px-3 py-2 text-sm">Adicionar produtos</button>
+            <button id="btn-personalizar-mensagem" type="button" aria-expanded="false" aria-controls="personalizar-mensagem-painel" class="rounded-lg bg-violet-700 hover:bg-violet-600 px-3 py-2 text-sm">Personalizar mensagem para cliente</button>
+          </div>
+          <section id="adicionar-produtos-painel" class="hidden space-y-3 rounded-lg border border-slate-700 p-3" aria-label="Adicionar produtos ao orçamento">
+            <h4 class="text-sm font-semibold">Adicionar outro produto do catálogo</h4>
+            <div class="grid gap-3 sm:grid-cols-3">
+              <label class="text-sm sm:col-span-3">Produto
+                <select id="adicionar-produto-selecao" class="input mt-1"></select>
+              </label>
+              <label class="text-sm">Quantidade
+                <input id="adicionar-produto-quantidade" type="number" min="1" step="1" value="1" class="input mt-1">
+              </label>
+              <label class="text-sm sm:col-span-2">Preço unitário (R$)
+                <input id="adicionar-produto-preco" type="number" min="0" step="0.01" class="input mt-1">
+              </label>
+            </div>
+            <button id="btn-confirmar-adicao-produto" type="button" class="rounded-lg bg-sky-700 hover:bg-sky-600 px-3 py-2 text-sm">Incluir no orçamento</button>
+          </section>
+          <ul id="orcamento-produto-itens" class="space-y-2" aria-label="Produtos deste orçamento"></ul>
+          <section id="orcamento-fotos-painel" class="hidden space-y-2 rounded-lg border border-emerald-800 p-3" aria-label="Fotos dos produtos do orçamento">
+            <p class="text-xs font-semibold uppercase text-emerald-300">Fotos dos produtos</p>
+            <ul id="orcamento-fotos-lista" class="flex flex-wrap gap-2"></ul>
+            <button id="btn-enviar-fotos-orcamento" type="button" class="rounded-lg bg-emerald-700 hover:bg-emerald-600 px-3 py-2 text-sm">Compartilhar fotos no WhatsApp</button>
+          </section>
+          <p id="orcamento-produto-total" class="rounded-lg bg-slate-800 p-3 text-sm" aria-live="polite"></p>
+          <section id="personalizar-mensagem-painel" class="hidden">
+            <label class="block text-sm">Mensagem adicional para o cliente
+              <textarea id="orcamento-produto-mensagem" rows="4" maxlength="1000" placeholder="Ex.: prazo de produção, opção de acabamento ou condição especial" class="input mt-1"></textarea>
+            </label>
+          </section>
+          <div class="rounded-lg border border-slate-700 p-3">
+            <p class="mb-2 text-xs font-semibold uppercase text-slate-400">Prévia da mensagem do WhatsApp</p>
+            <pre id="orcamento-produto-preview" class="whitespace-pre-wrap break-words text-sm text-slate-300"></pre>
+          </div>
+          <p id="orcamento-produto-status" class="text-sm text-red-400" role="status" aria-live="polite"></p>
+          <div class="flex flex-wrap justify-end gap-2">
+            <button id="orcamento-produto-fechar" type="button" class="rounded-lg bg-slate-700 hover:bg-slate-600 px-3 py-2 text-sm">Cancelar</button>
+            <button type="submit" class="btn-primario">Criar orçamento e abrir WhatsApp</button>
+          </div>
+        </form>
+      </dialog>
+    </section>
+
+    <!-- ====================== PÁGINA: CLIENTES ====================== -->
+    <section data-page="clientes" class="hidden">
+      <h2 class="font-semibold text-slate-700 dark:text-slate-200 mb-3" data-ajuda="clientes">Cadastro de Clientes</h2>
+      <form id="form-cliente" class="mb-6 bg-white dark:bg-slate-800 rounded-xl shadow p-4 space-y-3 border border-slate-200 dark:border-slate-700">
+        <h3 id="cliente-form-titulo" class="font-semibold">Cadastrar cliente</h3>
+        <input id="cliente-id" type="hidden">
+        <div class="grid gap-3 sm:grid-cols-2">
+          <label class="text-sm">Nome
+            <input id="cliente-nome" required maxlength="120" autocomplete="name" placeholder="Nome do cliente" class="input mt-1">
+          </label>
+          <label class="text-sm">WhatsApp
+            <input id="cliente-whatsapp" required type="tel" inputmode="tel" autocomplete="tel" placeholder="(11) 99999-9999" class="input mt-1" aria-describedby="cliente-whatsapp-ajuda">
+            <span id="cliente-whatsapp-ajuda" class="mt-1 block text-xs text-slate-500">Informe DDD e número; o código +55 será usado quando não informado.</span>
+          </label>
+          <label class="text-sm sm:col-span-2">E-mail (opcional)
+            <input id="cliente-email" type="email" maxlength="254" autocomplete="email" placeholder="cliente@exemplo.com" class="input mt-1">
+          </label>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button id="cliente-salvar" type="submit" class="btn-primario">Salvar cliente</button>
+          <button id="cliente-cancelar" type="button" class="hidden rounded-lg bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 text-sm">Cancelar edição</button>
+        </div>
+        <p id="clientes-status" class="text-sm" role="status" aria-live="polite"></p>
+      </form>
+      <ul id="lista-clientes" class="flex flex-col gap-2" aria-label="Clientes cadastrados"></ul>
+    </section>
+
+    <!-- ====================== PÁGINA: PERSONALIZAÇÃO ====================== -->
+    <section data-page="personalizacao" class="hidden">
+      <h2 class="font-semibold text-slate-700 dark:text-slate-200 mb-3" data-ajuda="personalizacao">Personalização do aplicativo</h2>
+      <p class="text-sm text-slate-500 mb-4">O nome e a logo ficam salvos neste dispositivo e continuam disponíveis offline.</p>
+      <form id="form-identidade" class="bg-white dark:bg-slate-800 rounded-xl shadow p-4 space-y-4 border border-slate-200 dark:border-slate-700 max-w-2xl">
+        <label class="block text-sm">Nome exibido no topo
+          <input id="identidade-nome" required maxlength="50" placeholder="Nome do seu ateliê" class="input mt-1">
+        </label>
+        <div class="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-center">
+          <label class="text-sm">Logo (PNG, JPEG ou WebP; até 5 MB)
+            <input id="identidade-logo-arquivo" type="file" accept="image/png,image/jpeg,image/webp" class="input mt-1">
+          </label>
+          <img id="identidade-logo-preview" src="icons/icon-192.jpg" alt="Prévia da logo" class="h-16 w-16 rounded-lg bg-white object-contain p-1 ring-1 ring-slate-600">
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button type="submit" class="btn-primario">Salvar personalização</button>
+          <button id="identidade-logo-remover" type="button" class="rounded-lg bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 text-sm">Restaurar logo padrão</button>
+        </div>
+        <p id="identidade-status" class="text-sm" role="status" aria-live="polite"></p>
+      </form>
+    </section>
+
+    <!-- ====================== PÁGINA: INSUMOS ====================== -->
+    <section data-page="insumos" class="hidden">
+      <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 class="font-semibold text-slate-700 dark:text-slate-200" data-ajuda="insumos">Controle de Estoque de Insumos</h2>
+          <p class="mt-1 text-sm text-slate-500">Acompanhe saldo, custo, reposição e movimentações. Alterações ficam salvas offline e sincronizam com sua conta.</p>
+        </div>
+        <button id="btn-estoque-nova-movimentacao" type="button" class="rounded-lg bg-sky-700 hover:bg-sky-600 px-4 py-2 text-sm font-medium text-white">Registrar movimentação</button>
+      </div>
+
+      <form id="form-insumo" class="scroll-mt-24 rounded-xl border-2 border-emerald-500 bg-emerald-50/60 p-5 shadow-lg dark:border-emerald-500 dark:bg-emerald-950/30">
+        <input id="ins-id" type="hidden">
+        <div class="mb-4">
+          <h3 id="ins-form-titulo" class="text-xl font-bold text-emerald-800 dark:text-emerald-300">⭐ Cadastrar insumo</h3>
+          <p class="mt-1 text-sm text-slate-500">Defina unidade, custo médio e nível mínimo para alertas de reposição.</p>
+        </div>
+        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <label class="text-sm sm:col-span-2">Nome do insumo
+            <input id="ins-nome" required maxlength="100" placeholder="Ex.: EVA 2 mm, papel couché 250 g" class="input mt-1">
+          </label>
+          <label class="text-sm">Unidade de medida
+            <select id="ins-unidade" class="input mt-1">
+              <option value="m">Metro (m)</option>
+              <option value="cm">Centímetro (cm)</option>
+              <option value="folha">Folha</option>
+              <option value="un">Unidade</option>
+              <option value="kg">Quilo (kg)</option>
+              <option value="g">Grama (g)</option>
+              <option value="l">Litro (L)</option>
+              <option value="ml">Mililitro (ml)</option>
+              <option value="bobina">Bobina</option>
+              <option value="pacote">Pacote</option>
+            </select>
+          </label>
+          <label class="text-sm">Categoria
+            <input id="ins-categoria" maxlength="60" placeholder="Ex.: Papelaria, tecido, acabamento" class="input mt-1">
+          </label>
+          <label class="text-sm">Fornecedor
+            <input id="ins-fornecedor" maxlength="100" placeholder="Nome do fornecedor" class="input mt-1">
+          </label>
+          <label class="text-sm">Localização
+            <input id="ins-localizacao" maxlength="80" placeholder="Ex.: Armário A, prateleira 2" class="input mt-1">
+          </label>
+          <label class="text-sm">Quantidade atual
+            <input id="ins-qtd" type="number" step="0.001" min="0" required placeholder="0,00" class="input mt-1">
+            <span id="ins-qtd-help" class="mt-1 block text-xs text-slate-500">Para corrigir o saldo, use o registro de movimentação.</span>
+          </label>
+          <label class="text-sm">Custo unitário médio (R$)
+            <input id="ins-custo" type="number" step="0.01" min="0" required placeholder="0,00" class="input mt-1">
+          </label>
+          <label class="text-sm">Estoque mínimo para alerta
+            <input id="ins-minimo" type="number" step="0.001" min="0" value="0" required placeholder="0" class="input mt-1">
+          </label>
+        </div>
+        <div class="mt-4 flex flex-wrap gap-2">
+          <button id="ins-submit" type="submit" class="btn-primario">Salvar insumo</button>
+          <button id="ins-cancelar" type="button" class="hidden rounded-lg bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600">Cancelar edição</button>
+        </div>
+        <p id="estoque-status" class="mt-3 text-sm" role="status" aria-live="polite"></p>
+      </form>
+
+      <div id="estoque-resumo" class="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-live="polite"></div>
+
+      <div class="mb-4 grid gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800 sm:grid-cols-2 lg:grid-cols-4">
+        <label class="text-sm">Buscar insumo
+          <input id="estoque-busca" type="search" placeholder="Nome, fornecedor ou localização" class="input mt-1">
+        </label>
+        <label class="text-sm">Categoria
+          <select id="estoque-filtro-categoria" class="input mt-1"><option value="">Todas as categorias</option></select>
+        </label>
+        <label class="text-sm">Situação
+          <select id="estoque-filtro-situacao" class="input mt-1">
+            <option value="">Todas</option>
+            <option value="baixo">Estoque baixo</option>
+            <option value="zerado">Zerado / negativo</option>
+            <option value="regular">Regular</option>
+          </select>
+        </label>
+        <label class="text-sm">Ordenar por
+          <select id="estoque-ordenacao" class="input mt-1">
+            <option value="nome">Nome (A–Z)</option>
+            <option value="quantidade">Menor saldo</option>
+            <option value="valor">Maior valor em estoque</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="mb-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+          <h3 class="font-semibold">Insumos cadastrados</h3>
+          <span id="estoque-contagem" class="text-xs text-slate-500"></span>
+        </div>
+        <div id="lista-insumos" class="divide-y divide-slate-200 dark:divide-slate-700"><!-- renderizado pelo app.js --></div>
+      </div>
+
+      <div class="mb-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+          <h3 class="font-semibold">Movimentações recentes</h3>
+          <p class="mt-1 text-xs text-slate-500">Inclui entradas, saídas manuais e consumo/estorno vinculado à produção de ordens de serviço.</p>
+        </div>
+        <div id="lista-movimentacoes-estoque" class="divide-y divide-slate-200 dark:divide-slate-700"></div>
+      </div>
+
+
+
+      <dialog id="dialog-movimentacao-estoque" class="w-[min(34rem,calc(100%-2rem))] rounded-xl bg-white p-0 text-slate-900 shadow-2xl backdrop:bg-slate-950/60 dark:bg-slate-800 dark:text-slate-100">
+        <form id="form-movimentacao-estoque" class="space-y-4 p-5">
+          <div>
+            <h3 class="text-lg font-semibold">Registrar movimentação</h3>
+            <p class="mt-1 text-sm text-slate-500">O saldo e o histórico são atualizados juntos.</p>
+          </div>
+          <label class="block text-sm">Insumo
+            <select id="mov-insumo-id" required class="input mt-1"></select>
+          </label>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <label class="text-sm">Tipo
+              <select id="mov-tipo" required class="input mt-1">
+                <option value="entrada">Entrada / compra</option>
+                <option value="saida">Saída / uso</option>
+                <option value="perda">Perda / descarte</option>
+                <option value="ajuste">Ajuste de saldo</option>
+              </select>
+            </label>
+            <label id="mov-quantidade-label" class="text-sm">Quantidade
+              <input id="mov-quantidade" required type="number" step="0.001" min="0.001" class="input mt-1">
+            </label>
+          </div>
+          <label id="mov-custo-label" class="block text-sm">Custo unitário desta entrada (R$)
+            <input id="mov-custo" type="number" step="0.01" min="0" class="input mt-1">
+            <span class="mt-1 block text-xs text-slate-500">Será calculado o custo médio ponderado do insumo.</span>
+          </label>
+          <label id="mov-financeiro-label" class="block text-sm">Despesa desta compra
+            <select id="mov-financeiro-status" class="input mt-1">
+              <option value="pendente">Registrar como conta a pagar</option>
+              <option value="pago">Registrar como despesa já paga</option>
+              <option value="">Não registrar despesa</option>
+            </select>
+            <span id="mov-financeiro-total" class="mt-1 block text-xs text-slate-500">O valor total usa a quantidade e o custo unitário desta entrada.</span>
+          </label>
+          <label class="block text-sm">Motivo / observação
+            <input id="mov-motivo" required maxlength="160" placeholder="Ex.: Compra, reposição, perda ou conferência" class="input mt-1">
+          </label>
+          <p id="mov-status" class="text-sm" role="status" aria-live="polite"></p>
+          <div class="flex justify-end gap-2">
+            <button id="mov-cancelar" type="button" class="rounded-lg bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600">Cancelar</button>
+            <button id="mov-salvar" type="submit" class="btn-primario">Salvar movimentação</button>
+          </div>
+        </form>
+      </dialog>
+    </section>
+
+    <!-- ====================== PÁGINA: PRECIFICAÇÃO ====================== -->
+    <section data-page="preco" class="hidden">
+      <h2 class="font-semibold text-slate-700 dark:text-slate-200 mb-3" data-ajuda="preco">Calculadora de Precificação</h2>
+      <form id="form-calc" class="bg-white dark:bg-slate-800 rounded-xl shadow p-4 space-y-3 border border-slate-200 dark:border-slate-700 max-w-lg">
+        <div class="grid gap-3 sm:grid-cols-2">
+          <label class="text-sm">Tempo de produção (min)
+            <input id="calc-tempo" type="number" step="1" min="0" placeholder="ex.: 90" class="input">
+          </label>
+          <label class="text-sm">Valor da hora/homem (R$)
+            <input id="calc-hora" type="number" step="0.01" min="0" placeholder="ex.: 25.00" class="input">
+          </label>
+          <label class="text-sm">Taxa de pagamento (%)
+            <input id="calc-taxa" type="number" step="0.1" min="0" placeholder="ex.: 3.3 (maquineta)" class="input">
+          </label>
+          <label class="text-sm">Margem de lucro (%)
+            <input id="calc-margem" type="number" step="1" min="0" max="99" placeholder="ex.: 30" class="input">
+          </label>
+        </div>
+        <fieldset class="border border-slate-200 dark:border-slate-600 rounded-lg p-3">
+          <legend class="text-xs uppercase text-slate-500 px-1">Insumos utilizados (descontos fracionados)</legend>
+          <div id="calc-insumos"></div>
+        </fieldset>
+        <div id="calc-resultado" class="bg-slate-50 dark:bg-slate-900 rounded-lg p-3" data-valor=""></div>
+      </form>
+    </section>
+
+    <!-- ====================== PÁGINA: FINANCEIRO ====================== -->
+    <section data-page="financeiro" class="hidden">
+      <div class="financeiro-cabecalho">
+        <div>
+          <h2 class="font-semibold text-slate-200" data-ajuda="financeiro">Financeiro</h2>
+          <p class="mt-1 text-sm text-slate-400">Recebimentos vinculados às OS, despesas e vencimentos em um único fluxo, disponível offline.</p>
+        </div>
+        <label class="text-sm">Período
+          <input id="financeiro-periodo" type="month" class="input mt-1">
+        </label>
+      </div>
+      <p id="financeiro-status" class="mb-3 text-sm" role="status" aria-live="polite"></p>
+      <div id="financeiro-painel" class="mb-6">
+        <p class="text-slate-400 text-sm italic">Carregando resumo financeiro…</p>
+      </div>
+
+      <div class="financeiro-formularios">
+        <form id="form-financeiro-entrada" class="financeiro-form">
+          <div>
+            <h3>Registrar recebimento</h3>
+            <p>Associe o valor a uma OS para atualizar automaticamente o saldo em aberto.</p>
+          </div>
+          <label class="text-sm">Ordem de serviço
+            <select id="financeiro-os" class="input mt-1"></select>
+          </label>
+          <span id="financeiro-entrada-ajuda" class="text-xs text-slate-400"></span>
+          <label class="text-sm">Descrição
+            <input id="financeiro-descricao-entrada" maxlength="160" placeholder="Ex.: Parcela, sinal ou venda avulsa" class="input mt-1">
+          </label>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <label class="text-sm">Valor recebido (R$)
+              <input id="financeiro-valor-entrada" required type="number" min="0.01" step="0.01" inputmode="decimal" class="input mt-1">
+            </label>
+            <label class="text-sm">Data do recebimento
+              <input id="financeiro-data-entrada" required type="date" class="input mt-1">
+            </label>
+          </div>
+          <label class="text-sm">Forma de pagamento
+            <select id="financeiro-forma" class="input mt-1">
+              <option value="pix">Pix</option>
+              <option value="dinheiro">Dinheiro</option>
+              <option value="transferencia">Transferência</option>
+              <option value="cartao">Cartão</option>
+              <option value="outro">Outro</option>
+            </select>
+          </label>
+          <label class="text-sm">Observação (opcional)
+            <input id="financeiro-observacao-entrada" maxlength="300" class="input mt-1">
+          </label>
+          <button id="financeiro-salvar-entrada" type="submit" class="btn-primario">Salvar recebimento</button>
+        </form>
+
+        <form id="form-financeiro-despesa" class="financeiro-form">
+          <div>
+            <h3>Registrar despesa</h3>
+            <p>Acompanhe custos do ateliê e sinalize o que ainda está por vencer.</p>
+          </div>
+          <label class="text-sm">Descrição
+            <input id="financeiro-descricao-despesa" required maxlength="160" placeholder="Ex.: Aluguel, energia ou compra de papel" class="input mt-1">
+          </label>
+          <label class="text-sm">Categoria
+            <input id="financeiro-categoria-despesa" maxlength="60" placeholder="Ex.: Insumos, estrutura, serviços" class="input mt-1">
+          </label>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <label class="text-sm">Valor (R$)
+              <input id="financeiro-valor-despesa" required type="number" min="0.01" step="0.01" inputmode="decimal" class="input mt-1">
+            </label>
+            <label class="text-sm"><span id="financeiro-data-despesa-label">Vencimento</span>
+              <input id="financeiro-vencimento-despesa" required type="date" class="input mt-1">
+            </label>
+          </div>
+          <label class="text-sm">Situação
+            <select id="financeiro-status-despesa" class="input mt-1">
+              <option value="pendente">A pagar</option>
+              <option value="pago">Já paga</option>
+            </select>
+          </label>
+          <label class="text-sm">Observação (opcional)
+            <input id="financeiro-observacao-despesa" maxlength="300" class="input mt-1">
+          </label>
+          <button id="financeiro-salvar-despesa" type="submit" class="btn-primario">Salvar despesa</button>
+        </form>
+      </div>
+
+      <section class="financeiro-secao" aria-labelledby="financeiro-receber-heading">
+        <div class="financeiro-secao-cabecalho">
+          <div>
+            <h3 id="financeiro-receber-heading">Contas a receber</h3>
+            <p>Saldo calculado com sinais e pagamentos parciais de cada ordem.</p>
+          </div>
+        </div>
+        <div class="financeiro-tabela-wrap">
+          <table class="financeiro-tabela">
+            <thead><tr><th>Ordem / cliente</th><th>Total recebido</th><th>Em aberto</th><th>Prazo</th><th>Ação</th></tr></thead>
+            <tbody id="financeiro-contas-receber"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="financeiro-secao" aria-labelledby="financeiro-movimentacoes-heading">
+        <div class="financeiro-secao-cabecalho">
+          <div>
+            <h3 id="financeiro-movimentacoes-heading">Movimentações do período</h3>
+            <p>Os sinais são importados das OS existentes; novos pagamentos e despesas ficam registrados no histórico.</p>
+          </div>
+        </div>
+        <div class="financeiro-tabela-wrap">
+          <table class="financeiro-tabela">
+            <thead><tr><th>Data</th><th>Descrição</th><th>Situação</th><th>Valor</th><th>Ações</th></tr></thead>
+            <tbody id="financeiro-movimentacoes"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+  </main>
+
+  <!-- Botão de ajuda sempre visível, grande e fácil de tocar -->
+  <button id="btn-ajuda" type="button" aria-label="Abrir guia de como usar o aplicativo">❓ Como usar</button>
+
+  <footer class="text-center text-xs text-slate-400 pb-6">
+    <span id="footer-app-name">Ateliê Manager</span> · PWA offline-first (Dexie.js + Supabase) · v1.0
+    <div class="mt-4">
+      <button id="btn-ajude-dev" type="button" class="rounded-full bg-gradient-to-r from-fuchsia-700 to-violet-600 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-violet-900/30 transition hover:-translate-y-0.5 hover:from-fuchsia-600 hover:to-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-300">
+        💜 Ajude o desenvolvedor
+      </button>
+    </div>
+  </footer>
+
+  <dialog id="dialog-ajude-dev" aria-labelledby="ajude-dev-heading" class="w-[min(94vw,32rem)] rounded-xl border border-violet-500 bg-white p-5 text-slate-900 shadow-2xl backdrop:bg-slate-950/70 dark:bg-slate-900 dark:text-slate-100">
+    <div class="space-y-4">
+      <div>
+        <h2 id="ajude-dev-heading" class="text-xl font-bold">Apoie este projeto</h2>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-300">Obrigado por ajudar a manter o Ateliê Manager! Use o Pix copia e cola abaixo.</p>
+      </div>
+      <label for="pix-copia-cola" class="block text-sm font-medium">Pix copia e cola</label>
+      <textarea id="pix-copia-cola" class="input w-full break-all font-mono text-xs" rows="4" readonly>00020126330014br.gov.bcb.pix0111015619225015204000053039865802BR5921FABIO SILVA DOS ANJOS6009Sao Paulo62290525REC6AF09CB01264A2203363336304C140</textarea>
+      <p id="pix-status" class="text-sm" role="status" aria-live="polite"></p>
+      <div class="flex justify-end gap-2">
+        <button id="btn-fechar-ajude-dev" type="button" class="rounded-lg bg-slate-600 px-4 py-2 text-sm text-white">Fechar</button>
+        <button id="btn-copiar-pix" type="button" class="rounded-lg bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-600">Copiar Pix</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div id="auth-toast" class="auth-toast hidden" role="status" aria-live="polite" aria-atomic="true">
+    <p id="auth-toast-message" class="flex-1"></p>
+    <button id="auth-toast-dismiss" type="button" aria-label="Dispensar aviso" class="auth-toast-dismiss">×</button>
+  </div>
+
+  <!-- SDKs -->
+  <script src="https://cdn.jsdelivr.net/npm/dexie@4.0.8/dist/dexie.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
