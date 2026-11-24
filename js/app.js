@@ -645,13 +645,30 @@ async function mostrarResultadoSupabase(result) {
 // ============================================================
 function configurarTabs() {
   document.querySelectorAll('[data-tab]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('[data-tab]').forEach((b) =>
-        b.classList.toggle('bg-slate-800', b === btn) || b.classList.toggle('text-white', b === btn));
-      document.querySelectorAll('[data-page]').forEach((p) => {
-        p.classList.toggle('hidden', p.dataset.page !== btn.dataset.tab);
-      });
-    });
+    btn.addEventListener('click', () => ativarAba(btn.dataset.tab));
+  });
+  $('#btn-ir-insumos')?.addEventListener('click', () => {
+    ativarAba('insumos');
+    $('#ins-nome')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(() => $('#ins-nome')?.focus(), 350);
+  });
+}
+
+function ativarAba(nome) {
+  document.querySelectorAll('[data-tab]').forEach((b) => {
+    const ativa = b.dataset.tab === nome;
+    b.classList.toggle('bg-slate-800', ativa);
+    b.classList.toggle('text-white', ativa);
+    b.classList.toggle('bg-slate-200', !ativa);
+    b.classList.toggle('text-slate-800', !ativa);
+    const destaqueInsumos = !ativa && b.dataset.tab === 'insumos';
+    b.classList.toggle('bg-emerald-700', destaqueInsumos);
+    b.classList.toggle('ring-2', destaqueInsumos);
+    b.classList.toggle('ring-emerald-300', destaqueInsumos);
+    b.setAttribute('aria-selected', String(ativa));
+  });
+  document.querySelectorAll('[data-page]').forEach((p) => {
+    p.classList.toggle('hidden', p.dataset.page !== nome);
   });
 }
 
